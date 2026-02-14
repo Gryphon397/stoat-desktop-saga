@@ -37,6 +37,23 @@ function sendPttState(active: boolean) {
   }
 }
 
+function sendPttConfig() {
+  if (
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed()
+  ) {
+    const pttConfig = {
+      enabled: config.pushToTalk,
+      keybind: config.pushToTalkKeybind,
+      mode: config.pushToTalkMode,
+      releaseDelay: config.pushToTalkReleaseDelay,
+    };
+    pttLog("Sending PTT config to renderer:", pttConfig);
+    mainWindow.webContents.send("push-to-talk-config", pttConfig);
+  }
+}
+
 function deactivatePtt(reason: string, useDelay = true) {
   // Clear any existing release delay timeout
   if (releaseDelayTimeout) {
@@ -251,14 +268,7 @@ export async function registerPushToTalkHotkey(): Promise<void> {
   pttLog("Parsed keybind:", currentKeybind, "modifiers:", keybindModifiers);
 
   // Send PTT config to renderer for DOM interception
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("push-to-talk-config", {
-      enabled: config.pushToTalk,
-      keybind: config.pushToTalkKeybind,
-      mode: config.pushToTalkMode,
-    });
-    pttLog("Sent PTT config to renderer");
-  }
+  sendPttConfig();
 
   // Set up before-input-event listener (PRIMARY method)
   // This works on XWayland even when window appears unfocused
@@ -351,6 +361,49 @@ export function initPushToTalk(): void {
     pttLog("Manual PTT state:", data.active);
     isPttActive = data.active;
     sendPttState(data.active);
+  });
+
+  // Listen for settings updates from renderer
+  ipcMain.on(
+    "push-to-talk-update-settings",
+    (
+      _,
+      settings: {
+        enabled?: boolean;
+        keybind?: string;
+        mode?: "hold" | "toggle";
+        releaseDelay?: number;
+      },
+    ) => {
+      pttLog("Received settings update from renderer:", settings);
+
+      // Update config (setters automatically save to store)
+      if (typeof settings.enabled === "boolean") {
+        config.pushToTalk = settings.enabled;
+      }
+      if (typeof settings.keybind === "string") {
+        config.pushToTalkKeybind = settings.keybind;
+      }
+      if (settings.mode === "hold" || settings.mode === "toggle") {
+        config.pushToTalkMode = settings.mode;
+      }
+      if (typeof settings.releaseDelay === "number") {
+        config.pushToTalkReleaseDelay = settings.releaseDelay;
+      }
+
+      // Send updated config back to renderer
+      sendPttConfig();
+
+      // Note: The config setters automatically re-register hotkeys when needed
+      // and save to the electron-store
+      pttLog("Config updated and saved");
+    },
+  );
+
+  // Listen for config request from renderer
+  ipcMain.on("push-to-talk-request-config", () => {
+    pttLog("Renderer requested PTT config, sending...");
+    sendPttConfig();
   });
 
   if (config.pushToTalk) {

@@ -1,10 +1,22 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 const stateChangeCallbacks = new Set<(state: { active: boolean }) => void>();
+const configCallbacks = new Set<(config: PttConfig) => void>();
 let currentPttState = false;
 
-let pttKeybind = "V";
-let pttEnabled = false;
+interface PttConfig {
+  enabled: boolean;
+  keybind: string;
+  mode: "hold" | "toggle";
+  releaseDelay: number;
+}
+
+let pttConfig: PttConfig = {
+  enabled: false,
+  keybind: "V",
+  mode: "hold",
+  releaseDelay: 0,
+};
 
 function pttLog(...args: unknown[]) {
   console.log("[PTT-Renderer]", ...args);
@@ -12,12 +24,12 @@ function pttLog(...args: unknown[]) {
 
 function matchesPttKeybind(e: KeyboardEvent): boolean {
   // simple matching - can be rewritten for modifiers
-  return e.key.toLowerCase() === pttKeybind.toLowerCase();
+  return e.key.toLowerCase() === pttConfig.keybind.toLowerCase();
 }
 
 // Runs at capture phase to intercept before the app's keybind handler
 function handleKeyDown(e: KeyboardEvent) {
-  if (!pttEnabled || !matchesPttKeybind(e)) {
+  if (!pttConfig.enabled || !matchesPttKeybind(e)) {
     return;
   }
 
@@ -38,7 +50,7 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 function handleKeyUp(e: KeyboardEvent) {
-  if (!pttEnabled || !matchesPttKeybind(e)) {
+  if (!pttConfig.enabled || !matchesPttKeybind(e)) {
     return;
   }
 
@@ -76,11 +88,18 @@ ipcRenderer.on(
   "push-to-talk-config",
   (
     _event,
-    config: { enabled: boolean; keybind: string },
+    config: PttConfig,
   ) => {
-    pttLog("Received PTT config:", config);
-    pttEnabled = config.enabled;
-    pttKeybind = config.keybind;
+    pttLog("Received PTT config from main:", config);
+    pttConfig = { ...pttConfig, ...config };
+    // Notify all config listeners
+    configCallbacks.forEach((cb) => {
+      try {
+        cb(pttConfig);
+      } catch (err) {
+        console.error("[PTT] Error in config callback:", err);
+      }
+    });
   },
 );
 
@@ -127,6 +146,48 @@ contextBridge.exposeInMainWorld("pushToTalk", {
   },
 
   isAvailable: () => true,
+
+  /**
+   * Update PTT settings from renderer to main process
+   */
+  updateSettings: (settings: {
+    enabled?: boolean;
+    keybind?: string;
+    mode?: "hold" | "toggle";
+    releaseDelay?: number;
+  }) => {
+    pttLog("Sending PTT settings update to main:", settings);
+    ipcRenderer.send("push-to-talk-update-settings", settings);
+  },
+
+  /**
+   * Get current PTT config
+   */
+  getConfig: () => {
+    return pttConfig;
+  },
+
+  /**
+   * Subscribe to PTT config changes
+   */
+  onConfigChange: (callback: (config: PttConfig) => void) => {
+    configCallbacks.add(callback);
+    pttLog("Config listener added. Current config:", pttConfig);
+    // Immediately call with current config
+    callback(pttConfig);
+  },
+
+  /**
+   * Unsubscribe from PTT config changes
+   */
+  offConfigChange: (callback: (config: PttConfig) => void) => {
+    configCallbacks.delete(callback);
+    pttLog("Config listener removed");
+  },
 });
+
+// Request initial config from main process
+pttLog("Requesting initial PTT config from main...");
+ipcRenderer.send("push-to-talk-request-config");
 
 pttLog("Preload script loaded with DOM interception for PTT");
