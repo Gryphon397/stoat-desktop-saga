@@ -18,10 +18,16 @@ let keybindModifiers = { ctrl: false, shift: false, alt: false, meta: false };
 
 // For globalShortcut fallback
 let holdModeTimeout: NodeJS.Timeout | null = null;
+let releaseDelayTimeout: NodeJS.Timeout | null = null;
 const GLOBAL_HOLD_TIMEOUT_MS = 400; // Longer timeout to avoid initial blip
 let lastGlobalTriggerTime = 0;
 let lastActivationTime = 0;
 const MIN_HOLD_DURATION_MS = 600; // Don't allow deactivation for first 600ms
+
+// Push to Talk Release Delay - accessed dynamically to avoid circular dependency
+function getReleaseDelay(): number {
+  return config.pushToTalkReleaseDelay || 0;
+}
 
 // Log initial module load
 pttLog("Module loaded (using before-input-event)");
@@ -41,14 +47,34 @@ function sendPttState(active: boolean) {
 }
 
 /**
- * Deactivate PTT
+ * Deactivate PTT with optional release delay
  */
-function deactivatePtt(reason: string) {
-  if (isPttActive) {
-    isPttActive = false;
-    pttLog("PTT deactivated:", reason);
-    sendPttState(false);
+function deactivatePtt(reason: string, useDelay: boolean = true) {
+  // Clear any existing release delay timeout
+  if (releaseDelayTimeout) {
+    clearTimeout(releaseDelayTimeout);
+    releaseDelayTimeout = null;
   }
+
+  const delay = useDelay ? getReleaseDelay() : 0;
+
+  if (delay > 0 && isPttActive) {
+    pttLog("PTT release delayed by", delay, "ms");
+    releaseDelayTimeout = setTimeout(() => {
+      if (isPttActive) {
+        isPttActive = false;
+        pttLog("PTT deactivated (after delay):", reason);
+        sendPttState(false);
+      }
+    }, delay);
+  } else {
+    if (isPttActive) {
+      isPttActive = false;
+      pttLog("PTT deactivated:", reason);
+      sendPttState(false);
+    }
+  }
+
   if (holdModeTimeout) {
     clearTimeout(holdModeTimeout);
     holdModeTimeout = null;
@@ -59,6 +85,13 @@ function deactivatePtt(reason: string) {
  * Activate PTT
  */
 function activatePtt(reason: string) {
+  // Cancel any pending release delay when re-activating
+  if (releaseDelayTimeout) {
+    clearTimeout(releaseDelayTimeout);
+    releaseDelayTimeout = null;
+    pttLog("Cancelled pending release delay (key pressed again)");
+  }
+
   if (!isPttActive) {
     isPttActive = true;
     pttLog("PTT activated:", reason);

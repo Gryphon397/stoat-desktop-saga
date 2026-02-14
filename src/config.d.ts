@@ -8,6 +8,7 @@ declare type DesktopConfig = {
   pushToTalk: boolean;
   pushToTalkKeybind: string;
   pushToTalkMode: "hold" | "toggle";
+  pushToTalkReleaseDelay: number;
   windowState: {
     x: number;
     y: number;

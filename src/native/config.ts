@@ -36,6 +36,11 @@ const schema = {
     type: "string",
     enum: ["hold", "toggle"],
   } as JSONSchema.String,
+  pushToTalkReleaseDelay: {
+    type: "number",
+    minimum: 0,
+    maximum: 5000,
+  } as JSONSchema.Number,
   windowState: {
     type: "object",
     properties: {
@@ -70,6 +75,7 @@ const store = new Store({
     pushToTalk: false,
     pushToTalkKeybind: "Shift+Space",
     pushToTalkMode: "hold",
+    pushToTalkReleaseDelay: 0,
     windowState: {
       x: 0,
       y: 0,
@@ -95,6 +101,7 @@ class Config {
       pushToTalk: this.pushToTalk,
       pushToTalkKeybind: this.pushToTalkKeybind,
       pushToTalkMode: this.pushToTalkMode,
+      pushToTalkReleaseDelay: this.pushToTalkReleaseDelay,
       windowState: this.windowState,
     });
   }
@@ -251,6 +258,21 @@ class Config {
         console.error("[Config] Failed to re-register PTT hotkey:", err);
       });
     }
+
+    this.sync();
+  }
+
+  get pushToTalkReleaseDelay() {
+    return (store as never as { get(k: string): number }).get(
+      "pushToTalkReleaseDelay",
+    );
+  }
+
+  set pushToTalkReleaseDelay(value: number) {
+    (store as never as { set(k: string, value: number): void }).set(
+      "pushToTalkReleaseDelay",
+      value,
+    );
 
     this.sync();
   }
