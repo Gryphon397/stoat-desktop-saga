@@ -23,13 +23,17 @@ function pttLog(...args: unknown[]) {
 }
 
 function matchesPttKeybind(e: KeyboardEvent): boolean {
-  // simple matching - can be rewritten for modifiers
-  return e.key.toLowerCase() === pttConfig.keybind.toLowerCase();
+  const matches = e.key.toLowerCase() === pttConfig.keybind.toLowerCase();
+  pttLog(`[DEBUG] matchesPttKeybind: e.key="${e.key}", keybind="${pttConfig.keybind}", matches=${matches}`);
+  return matches;
 }
 
-// Runs at capture phase to intercept before the app's keybind handler
+// runs at capture phase to intercept before the app's keybind handler
 function handleKeyDown(e: KeyboardEvent) {
+  pttLog(`[DEBUG] DOM keydown: key="${e.key}", code="${e.code}", modifiers=${JSON.stringify({ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey})}, enabled=${pttConfig.enabled}`);
+  
   if (!pttConfig.enabled || !matchesPttKeybind(e)) {
+    pttLog(`[DEBUG] DOM keydown ignored - not PTT key or disabled`);
     return;
   }
 
@@ -42,7 +46,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
   if (isInput) {
     pttLog("PTT key pressed in input field, allowing typing + activating PTT");
-    // Don't stop propagation - let the key be typed
+    // don't stop propagation - let the key be typed
   } else {
     pttLog("PTT key pressed, stopping propagation");
     e.stopPropagation();
@@ -50,11 +54,16 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 function handleKeyUp(e: KeyboardEvent) {
+  pttLog(`[DEBUG] DOM keyup: key="${e.key}", code="${e.code}", modifiers=${JSON.stringify({ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey})}, enabled=${pttConfig.enabled}`);
+  
   if (!pttConfig.enabled || !matchesPttKeybind(e)) {
+    pttLog(`[DEBUG] DOM keyup ignored - not PTT key or disabled`);
     return;
   }
 
-  // Always stop propagation on keyup to match keydown behavior
+  pttLog(`[DEBUG] DOM keyup matched PTT keybind`);
+
+  // always stop propagation on keyup to match keydown behavior
   const target = e.target as HTMLElement;
   const isInput =
     target instanceof HTMLInputElement ||
@@ -67,7 +76,7 @@ function handleKeyUp(e: KeyboardEvent) {
   }
 }
 
-// Listen for PTT state changes from main process
+// listen for PTT state changes from main process
 ipcRenderer.on("push-to-talk", (_event, state: { active: boolean }) => {
   pttLog("Received PTT state from main:", state.active ? "ON" : "OFF");
 
@@ -83,7 +92,7 @@ ipcRenderer.on("push-to-talk", (_event, state: { active: boolean }) => {
   }
 });
 
-// Listen for PTT config updates
+// listen for PTT config updates
 ipcRenderer.on(
   "push-to-talk-config",
   (
@@ -103,7 +112,7 @@ ipcRenderer.on(
   },
 );
 
-// Add DOM event listeners at capture phase to intercept before app handlers
+// add DOM event listeners at capture phase to intercept before app handlers
 document.addEventListener("keydown", handleKeyDown, true);
 document.addEventListener("keyup", handleKeyUp, true);
 

@@ -9,6 +9,8 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 import { PublisherGithub } from "@electron-forge/publisher-github";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 // import { globSync } from "node:fs";
 
@@ -125,6 +127,10 @@ if (!process.env.PLATFORM) {
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    asarUnpack: [
+      // unpack native modules so they can be loaded at runtime
+      "**/node_modules/@tkomde/iohook/**/*",
+    ],
     name: STRINGS.name,
     executableName: STRINGS.execName,
     icon: `${ASSET_DIR}/icon`,
@@ -174,6 +180,43 @@ const config: ForgeConfig = {
       },
     }),
   ],
+  hooks: {
+    postPackage: async (forgeConfig, options) => {
+      // copy native iohook module to the packaged app
+      const sourceDir = path.join(__dirname, "node_modules", "@tkomde", "iohook");
+      const targetDir = path.join(
+        options.outputPaths[0],
+        "resources",
+        "app.asar.unpacked",
+        "node_modules",
+        "@tkomde",
+        "iohook"
+      );
+      
+      if (fs.existsSync(sourceDir)) {
+        console.log("Copying iohook native module to:", targetDir);
+        fs.mkdirSync(targetDir, { recursive: true });
+        
+        // copy the entire module
+        const copyRecursive = (src: string, dest: string) => {
+          const entries = fs.readdirSync(src, { withFileTypes: true });
+          for (const entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+            if (entry.isDirectory()) {
+              fs.mkdirSync(destPath, { recursive: true });
+              copyRecursive(srcPath, destPath);
+            } else {
+              fs.copyFileSync(srcPath, destPath);
+            }
+          }
+        };
+        
+        copyRecursive(sourceDir, targetDir);
+        console.log("✓ iohook native module copied successfully");
+      }
+    },
+  },
 };
 
 export default config;

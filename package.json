@@ -49,6 +49,7 @@
   "dependencies": {
     "@electron-forge/maker-appx": "^7.9.0",
     "@homebridge/dbus-native": "^0.7.2",
+    "@tkomde/iohook": "^1.1.7",
     "auto-launch": "^5.0.6",
     "bufferutil": "^4.0.9",
     "discord-rpc": "^4.0.1",
