@@ -99,11 +99,15 @@ function setupLocalProtocol() {
       pathname = pathname.slice(2);
     }
     
+    if(!localWebDir) {
+      throw new Error("Local web assets not found");
+    }
+
     // Construct full file path
-    const filePath = join(localWebDir!, pathname);
-    
+    const filePath = join(localWebDir, pathname);
+
     // Security check: ensure path is within localWebDir
-    if (!filePath.startsWith(localWebDir!)) {
+    if (!filePath.startsWith(localWebDir)) {
       console.error("[Protocol] Blocked access outside web-dist:", pathname);
       return new Response("Forbidden", { status: 403 });
     }
