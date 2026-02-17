@@ -231,7 +231,9 @@ jobs:
       
       - name: Install dependencies (Client)
         working-directory: client
-        run: pnpm install --frozen-lockfile
+        env:
+          npm_config_maxsockets: 1
+        run: pnpm install --frozen-lockfile --config.node-linker-isolated=false
 
       - name: Pull brand assets
         working-directory: client
@@ -256,14 +258,14 @@ jobs:
             node scripts/copyAssets.mjs
             Set-Location ../../..
           }
-      
+
       - name: Process translations
         working-directory: client
         run: |
           # Compile lingui messages after lingui packages are built
           mise lingui:extract
           mise lingui:compile
-      
+
       - name: Build web client
         working-directory: client
         run: mise build
