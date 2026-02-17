@@ -80,11 +80,25 @@ jobs:
       
       - name: Install dependencies (Client)
         working-directory: client
-        run: mise install:frozen
+        run: |
+          # Install all workspace packages
+          pnpm install --frozen-lockfile
+          # Verify workspace packages are recognized
+          pnpm ls --depth=0 || true
       
-      - name: Build dependencies
+      - name: Build lingui dependencies
         working-directory: client
-        run: mise build:deps
+        run: |
+          # Build lingui packages first (required for lingui:compile)
+          pnpm --filter @lingui-solid/babel-plugin-lingui-macro build
+          pnpm --filter @lingui-solid/babel-plugin-extract-messages build
+      
+      - name: Build other dependencies
+        working-directory: client
+        run: |
+          # Build remaining dependencies
+          pnpm --filter stoat.js build
+          pnpm --filter solid-livekit-components build
       
       - name: Copy audio assets
         run: |
@@ -100,6 +114,7 @@ jobs:
       - name: Process translations
         working-directory: client
         run: |
+          # Compile lingui messages after lingui packages are built
           mise lingui:extract
           mise lingui:compile
       
@@ -217,7 +232,8 @@ jobs:
       - name: Get pnpm store directory
         shell: pwsh
         run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $env:GITHUB_ENV
+          $storePath = pnpm store path --silent
+          "STORE_PATH=$storePath" | Out-File -FilePath $env:GITHUB_ENV -Append
       
       - name: Setup pnpm cache
         uses: actions/cache@v4
@@ -237,11 +253,25 @@ jobs:
       
       - name: Install dependencies (Client)
         working-directory: client
-        run: mise install:frozen
+        run: |
+          # Install all workspace packages
+          pnpm install --frozen-lockfile
+          # Verify workspace packages are recognized
+          pnpm ls --depth=0 || true
       
-      - name: Build dependencies
+      - name: Build lingui dependencies
         working-directory: client
-        run: mise build:deps
+        run: |
+          # Build lingui packages first (required for lingui:compile)
+          pnpm --filter @lingui-solid/babel-plugin-lingui-macro build
+          pnpm --filter @lingui-solid/babel-plugin-extract-messages build
+      
+      - name: Build other dependencies
+        working-directory: client
+        run: |
+          # Build remaining dependencies
+          pnpm --filter stoat.js build
+          pnpm --filter solid-livekit-components build
       
       - name: Copy audio assets
         shell: pwsh
@@ -258,6 +288,7 @@ jobs:
       - name: Process translations
         working-directory: client
         run: |
+          # Compile lingui messages after lingui packages are built
           mise lingui:extract
           mise lingui:compile
       
