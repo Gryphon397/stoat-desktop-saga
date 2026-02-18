@@ -161,7 +161,7 @@ const config: ForgeConfig = {
       const electronAbi = "139"; // electron 38.x
       const arch = "x64";
 
-      const url = `https://registry.npmjs.org/@tkomde/iohook/-/iohook-${iohookVersion}-electron-v${electronAbi}-win32-${arch}.tar.gz`;
+      const url = `https://github.com/tkomde/iohook/releases/download/v${iohookVersion}/iohook-v${iohookVersion}-electron-v${electronAbi}-win32-${arch}.tar.gz`;
       const downloadPath = path.join(__dirname, ".vite", "iohook-win32.tar.gz");
       const extractPath = path.join(
         __dirname,
