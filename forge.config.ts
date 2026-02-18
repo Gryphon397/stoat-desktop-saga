@@ -62,7 +62,7 @@ if (!process.env.PLATFORM) {
         description: STRINGS.description,
         productName: STRINGS.name,
         productDescription: STRINGS.description,
-        runtimeVersion: "24.08",
+        runtimeVersion: "25.08",
         icon: `${ASSET_DIR}/icon.png`,
         categories: ["Network"],
         modules: [
@@ -147,54 +147,71 @@ const config: ForgeConfig = {
     prePackage: async (_forgeConfig, platform) => {
       // download Windows iohook binaries when building for Windows
       if (platform !== "win32") {
-        console.log(`[prePackage] Building for ${platform}, skipping Windows iohook download`);
+        console.log(
+          `[prePackage] Building for ${platform}, skipping Windows iohook download`,
+        );
         return;
       }
-      
-      console.log("[prePackage] Building for Windows, downloading iohook binaries...");
-      
+
+      console.log(
+        "[prePackage] Building for Windows, downloading iohook binaries...",
+      );
+
       const iohookVersion = "1.1.7";
       const electronAbi = "139"; // electron 38.x
       const arch = "x64";
-      
+
       const url = `https://registry.npmjs.org/@tkomde/iohook/-/iohook-${iohookVersion}-electron-v${electronAbi}-win32-${arch}.tar.gz`;
       const downloadPath = path.join(__dirname, ".vite", "iohook-win32.tar.gz");
-      const extractPath = path.join(__dirname, "node_modules", "@tkomde", "iohook", "builds", `electron-v${electronAbi}-win32-${arch}`);
-      
+      const extractPath = path.join(
+        __dirname,
+        "node_modules",
+        "@tkomde",
+        "iohook",
+        "builds",
+        `electron-v${electronAbi}-win32-${arch}`,
+      );
+
       fs.mkdirSync(path.dirname(downloadPath), { recursive: true });
-      
+
       console.log(`[prePackage] Downloading from: ${url}`);
       await new Promise<void>((resolve, reject) => {
         const file = fs.createWriteStream(downloadPath);
-        https.get(url, (response) => {
-          if (response.statusCode === 302 || response.statusCode === 301) {
-            const redirectUrl = response.headers.location;
-            if (!redirectUrl) {
-              reject(new Error("Redirect location not found"));
-              return;
-            }
-            https.get(redirectUrl, (redirectResponse) => {
-              redirectResponse.pipe(file);
+        https
+          .get(url, (response) => {
+            if (response.statusCode === 302 || response.statusCode === 301) {
+              const redirectUrl = response.headers.location;
+              if (!redirectUrl) {
+                reject(new Error("Redirect location not found"));
+                return;
+              }
+              https
+                .get(redirectUrl, (redirectResponse) => {
+                  redirectResponse.pipe(file);
+                  file.on("finish", () => {
+                    file.close();
+                    console.log("[prePackage] Download complete");
+                    resolve();
+                  });
+                })
+                .on("error", reject);
+            } else {
+              response.pipe(file);
               file.on("finish", () => {
                 file.close();
                 console.log("[prePackage] Download complete");
                 resolve();
               });
-            }).on("error", reject);
-          } else {
-            response.pipe(file);
-            file.on("finish", () => {
-              file.close();
-              console.log("[prePackage] Download complete");
-              resolve();
+            }
+          })
+          .on("error", (err) => {
+            fs.unlink(downloadPath, () => {
+              /* ignore unlink errors */
             });
-          }
-        }).on("error", (err) => {
-          fs.unlink(downloadPath, () => { /* ignore unlink errors */ });
-          reject(err);
-        });
+            reject(err);
+          });
       });
-      
+
       console.log("[prePackage] Extracting binaries...");
       fs.mkdirSync(extractPath, { recursive: true });
       await tar.x({
@@ -202,27 +219,34 @@ const config: ForgeConfig = {
         cwd: extractPath,
         strip: 1,
       });
-      
-      console.log(`[prePackage] Windows iohook binaries extracted to: ${extractPath}`);
-      
+
+      console.log(
+        `[prePackage] Windows iohook binaries extracted to: ${extractPath}`,
+      );
+
       fs.unlinkSync(downloadPath);
     },
     postPackage: async (_forgeConfig, options) => {
       // copy native iohook module to the packaged app
-      const sourceDir = path.join(__dirname, "node_modules", "@tkomde", "iohook");
+      const sourceDir = path.join(
+        __dirname,
+        "node_modules",
+        "@tkomde",
+        "iohook",
+      );
       const targetDir = path.join(
         options.outputPaths[0],
         "resources",
         "app.asar.unpacked",
         "node_modules",
         "@tkomde",
-        "iohook"
+        "iohook",
       );
-      
+
       if (fs.existsSync(sourceDir)) {
         console.log("Copying iohook native module to:", targetDir);
         fs.mkdirSync(targetDir, { recursive: true });
-        
+
         // copy the entire module
         const copyRecursive = (src: string, dest: string) => {
           const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -237,7 +261,7 @@ const config: ForgeConfig = {
             }
           }
         };
-        
+
         copyRecursive(sourceDir, targetDir);
         console.log("✓ iohook native module copied successfully");
       }

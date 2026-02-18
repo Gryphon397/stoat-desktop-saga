@@ -1,6 +1,6 @@
-import { updateElectronApp } from "update-electron-app";
+import { IUpdateInfo, updateElectronApp } from "update-electron-app";
 
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, shell, Notification } from "electron";
 import started from "electron-squirrel-startup";
 
 import { autoLaunch } from "./native/autoLaunch";
@@ -30,9 +30,19 @@ if (!config.hardwareAcceleration) {
 // ensure only one copy of the application can run
 const acquiredLock = app.requestSingleInstanceLock();
 
+const onNotifyUser = (_info: IUpdateInfo) => {
+  const notification = new Notification({
+    title: 'Update Available',
+    body: 'Restart the app to install the update.',
+    silent: true
+  })
+
+  notification.show()
+}
+
 if (acquiredLock) {
   // start auto update logic
-  updateElectronApp();
+  updateElectronApp({onNotifyUser})
 
   app.on("ready", () => {
     // initialise build URL from command line

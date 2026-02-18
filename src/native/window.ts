@@ -14,7 +14,7 @@ import {
 import windowIconAsset from "../../assets/desktop/icon.png?asset";
 
 import { config } from "./config";
-  import { updateTrayMenu } from "./tray";
+import { updateTrayMenu } from "./tray";
 
 // global reference to main window
 export let mainWindow: BrowserWindow;
@@ -68,7 +68,10 @@ export function initBuildUrl() {
     // Setup protocol handler for local files
     setupLocalProtocol();
     BUILD_URL = new URL("stoat://-/index.html");
-    console.log("[Window] Loading from local web assets via custom protocol:", localWebDir);
+    console.log(
+      "[Window] Loading from local web assets via custom protocol:",
+      localWebDir,
+    );
   } else {
     BUILD_URL = new URL(
       forceServer ||
@@ -88,18 +91,18 @@ function setupLocalProtocol() {
   protocol.handle("stoat", (request) => {
     const url = new URL(request.url);
     let pathname = url.pathname;
-    
+
     // Default to index.html for root
     if (!pathname || pathname === "/" || pathname === "-/") {
       pathname = "/index.html";
     }
-    
+
     // Remove leading dash if present (stoat://-/path -> /path)
     if (pathname.startsWith("/-/")) {
       pathname = pathname.slice(2);
     }
-    
-    if(!localWebDir) {
+
+    if (!localWebDir) {
       throw new Error("Local web assets not found");
     }
 
@@ -111,7 +114,7 @@ function setupLocalProtocol() {
       console.error("[Protocol] Blocked access outside web-dist:", pathname);
       return new Response("Forbidden", { status: 403 });
     }
-    
+
     // Serve the file
     return net.fetch("file://" + filePath);
   });
@@ -129,6 +132,10 @@ const windowIcon = nativeImage.createFromDataURL(windowIconAsset);
  * Create the main application window
  */
 export function createMainWindow() {
+  // (CLI arg --hidden or config)
+  const startHidden =
+    app.commandLine.hasSwitch("hidden") || config.startMinimisedToTray;
+
   // create the window
   mainWindow = new BrowserWindow({
     minWidth: 300,
@@ -138,6 +145,7 @@ export function createMainWindow() {
     backgroundColor: "#191919",
     frame: !config.customFrame,
     icon: windowIcon,
+    show: !startHidden,
     webPreferences: {
       // relative to `.vite/build`
       preload: join(__dirname, "preload.js"),
@@ -153,11 +161,6 @@ export function createMainWindow() {
   // hide the options
   mainWindow.setMenu(null);
 
-  // maximise the window if it was maximised before
-  if (config.windowState.isMaximised) {
-    mainWindow.maximize();
-  }
-
   // restore last position if it was moved previously
   if (config.windowState.x > 0 || config.windowState.y > 0) {
     mainWindow.setPosition(
@@ -172,6 +175,11 @@ export function createMainWindow() {
       config.windowState.width ?? 1280,
       config.windowState.height ?? 720,
     );
+  }
+
+  // maximise the window if it was maximised before
+  if (config.windowState.isMaximised) {
+    mainWindow.maximize();
   }
 
   // load the entrypoint
@@ -207,8 +215,8 @@ export function createMainWindow() {
 
   // Handle keyboard shortcuts (zoom + DevTools)
   mainWindow.webContents.on("before-input-event", (event, input) => {
-    // Zoom in with Ctrl+=
-    if (input.control && input.key === "=") {
+    // Zoom in with Ctrl+= or Ctrl++
+    if (input.control && (input.key === "=" || input.key === "+")) {
       event.preventDefault();
       mainWindow.webContents.setZoomLevel(
         mainWindow.webContents.getZoomLevel() + 1,
@@ -222,6 +230,23 @@ export function createMainWindow() {
       mainWindow.webContents.setZoomLevel(
         mainWindow.webContents.getZoomLevel() - 1,
       );
+      return;
+    }
+
+    // Reset zoom with Ctrl+0
+    if (input.control && input.key === "0") {
+      event.preventDefault();
+      mainWindow.webContents.setZoomLevel(0);
+      return;
+    }
+
+    // Reload with F5 or Ctrl+R
+    if (
+      input.key === "F5" ||
+      ((input.control || input.meta) && input.key.toLowerCase() === "r")
+    ) {
+      event.preventDefault();
+      mainWindow.webContents.reload();
       return;
     }
 

@@ -174,6 +174,14 @@ PTT has its own independent notification sound setting (disabled by default to p
 - PTT sounds are separate to avoid excessive notifications during rapid toggling
 - All settings are persisted to the config file automatically
 
+## Installation
+
+<a href="https://repology.org/project/stoat-desktop/versions">
+    <img src="https://repology.org/badge/vertical-allrepos/stoat-desktop.svg" alt="Packaging status" align="right">
+</a>
+
+- All downloads and instructions for Stoat can be found on our [Website](https://stoat.chat/download).
+
 ## Development Guide
 
 _Contribution guidelines for Desktop app TBA!_
