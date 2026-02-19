@@ -272,69 +272,85 @@ async function startKeyspy(): Promise<void> {
     keyboardListenerInstance = new GlobalKeyboardListener();
     
     keyspyListener = (event: any, isDown: Record<string, boolean>) => {
-      const keyName = normalizeKeyName(event.name);
-      const isKeyUpForActivePtt = event.state === "UP" && normalizeKeyName(pttActivationKey) === keyName;
-      const isPttKey = isKeyUpForActivePtt
-        ? matchesKeyspyEvent(event, isDown, false)
-        : matchesKeyspyEvent(event, isDown);
+      try {
+        const keyName = normalizeKeyName(event.name);
+        const isKeyUpForActivePtt = event.state === "UP" && normalizeKeyName(pttActivationKey) === keyName;
+        const isPttKey = isKeyUpForActivePtt
+          ? matchesKeyspyEvent(event, isDown, false)
+          : matchesKeyspyEvent(event, isDown);
 
-      pttLog(
-        `Keyspy event: name=${event.name}, state=${event.state}, ` +
-        `isPttKey=${isPttKey}, pttActive=${isPttActive}`
-      );
+        pttLog(
+          `Keyspy event: name=${event.name}, state=${event.state}, ` +
+          `isPttKey=${isPttKey}, pttActive=${isPttActive}`
+        );
 
-      if (!isPttKey) {
+        if (!isPttKey) {
+          return false;
+        }
+
+        if (config.pushToTalkMode === "hold") {
+          if (event.state === "DOWN") {
+            const keyIdentifier = event.name;
+            
+            if (heldKeys.has(keyIdentifier)) {
+              pttLog(`Ignoring auto-repeat for: ${keyIdentifier}`);
+              return false;
+            }
+
+            heldKeys.add(keyIdentifier);
+
+            if (!isPttActive || pttActivationKey === null) {
+              pttActivationKey = keyIdentifier;
+              activatePtt("keyspy global keydown");
+            }
+          } else if (event.state === "UP") {
+            const keyIdentifier = event.name;
+            heldKeys.delete(keyIdentifier);
+
+            if (pttActivationKey === keyIdentifier) {
+              pttActivationKey = null;
+              deactivatePtt("keyspy global keyup");
+            }
+          }
+        } else {
+          if (event.state === "DOWN") {
+            const keyIdentifier = event.name;
+            if (heldKeys.has(keyIdentifier)) {
+              return false;
+            }
+            heldKeys.add(keyIdentifier);
+
+            isPttActive = !isPttActive;
+            sendPttState(isPttActive);
+            pttLog("Keyspy PTT toggled:", isPttActive ? "ON" : "OFF");
+          } else if (event.state === "UP") {
+            heldKeys.delete(event.name);
+          }
+        }
+
+        return false;
+      } catch (err: any) {
+        if (err.code === "EPIPE") {
+          pttLog("✗ Keyspy pipe broken in listener, stopping...");
+          stopKeyspy();
+        } else {
+          pttLog("✗ Error in keyspy listener:", err);
+        }
         return false;
       }
-
-      if (config.pushToTalkMode === "hold") {
-        if (event.state === "DOWN") {
-          const keyIdentifier = event.name;
-          
-          if (heldKeys.has(keyIdentifier)) {
-            pttLog(`Ignoring auto-repeat for: ${keyIdentifier}`);
-            return false;
-          }
-
-          heldKeys.add(keyIdentifier);
-
-          if (!isPttActive || pttActivationKey === null) {
-            pttActivationKey = keyIdentifier;
-            activatePtt("keyspy global keydown");
-          }
-        } else if (event.state === "UP") {
-          const keyIdentifier = event.name;
-          heldKeys.delete(keyIdentifier);
-
-          if (pttActivationKey === keyIdentifier) {
-            pttActivationKey = null;
-            deactivatePtt("keyspy global keyup");
-          }
-        }
-      } else {
-        if (event.state === "DOWN") {
-          const keyIdentifier = event.name;
-          if (heldKeys.has(keyIdentifier)) {
-            return false;
-          }
-          heldKeys.add(keyIdentifier);
-
-          isPttActive = !isPttActive;
-          sendPttState(isPttActive);
-          pttLog("Keyspy PTT toggled:", isPttActive ? "ON" : "OFF");
-        } else if (event.state === "UP") {
-          heldKeys.delete(event.name);
-        }
-      }
-
-      return false;
     };
 
     await keyboardListenerInstance.addListener(keyspyListener);
     isKeyspyRunning = true;
     pttLog("✓ Keyspy started successfully");
-  } catch (err) {
-    pttLog("✗ Failed to start keyspy:", err);
+  } catch (err: any) {
+    if (err.code === "EPIPE") {
+      pttLog("✗ Keyspy pipe broken, cleaning up...");
+      keyboardListenerInstance = null;
+      isKeyspyRunning = false;
+    } else {
+      pttLog("✗ Failed to start keyspy:", err);
+    }
   }
 }
 
@@ -352,8 +368,17 @@ function stopKeyspy(): void {
     pttActivationKey = null;
     keyspyListener = null;
     pttLog("✓ Keyspy stopped");
-  } catch (err) {
-    pttLog("✗ Error stopping keyspy:", err);
+  } catch (err: any) {
+    if (err.code === "EPIPE") {
+      pttLog("✗ Keyspy pipe already broken, cleaning up state...");
+    } else {
+      pttLog("✗ Error stopping keyspy:", err);
+    }
+    keyboardListenerInstance = null;
+    isKeyspyRunning = false;
+    heldKeys.clear();
+    pttActivationKey = null;
+    keyspyListener = null;
   }
 }
 
