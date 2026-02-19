@@ -44,20 +44,19 @@
     "eslint-plugin-import": "^2.32.0",
     "json-schema-typed": "^8.0.1",
     "prettier": "^3.6.2",
-    "tar": "^7.5.7",
     "typescript": "~4.5.4",
     "vite": "^5.4.20"
   },
   "dependencies": {
     "@electron-forge/maker-appx": "^7.9.0",
     "@homebridge/dbus-native": "^0.7.2",
-    "@tkomde/iohook": "^1.1.7",
     "auto-launch": "^5.0.6",
     "bufferutil": "^4.0.9",
     "discord-rpc": "^4.0.1",
     "electron-serve": "^3.0.1",
     "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^10.1.0",
+    "keyspy": "^1.1.1",
     "update-electron-app": "^3.1.1",
     "utf-8-validate": "^6.0.5"
   },

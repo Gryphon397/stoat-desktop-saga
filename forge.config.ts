@@ -10,9 +10,7 @@ import { PublisherGithub } from "@electron-forge/publisher-github";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import * as fs from "node:fs";
-import * as https from "node:https";
 import * as path from "node:path";
-import * as tar from "tar";
 
 // import { globSync } from "node:fs";
 
@@ -131,13 +129,12 @@ if (!process.env.PLATFORM) {
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      unpack: "**/node_modules/@tkomde/iohook/**/*",
+      unpack: "**/node_modules/keyspy/**/*",
     },
     name: STRINGS.name,
     executableName: STRINGS.execName,
     icon: `${ASSET_DIR}/icon`,
     extraResource: [
-      // Include web-dist for bundled web client
       "web-dist",
     ],
   },
@@ -145,125 +142,96 @@ const config: ForgeConfig = {
   makers,
   hooks: {
     prePackage: async (_forgeConfig, platform) => {
-      // download Windows iohook binaries when building for Windows
-      if (platform !== "win32") {
-        console.log(
-          `[prePackage] Building for ${platform}, skipping Windows iohook download`,
-        );
-        return;
+      const keyspyPath = path.join(__dirname, "node_modules", "keyspy");
+      
+      if (platform === "win32") {
+        console.log("[prePackage] Building for Windows, compiling keyspy WinKeyServer...");
+        
+        const winServerSrc = path.join(keyspyPath, "native", "WinKeyServer", "main.cpp");
+        const buildDir = path.join(keyspyPath, "build");
+        const winServerBin = path.join(buildDir, "WinKeyServer.exe");
+        
+        fs.mkdirSync(buildDir, { recursive: true });
+        
+        // cross-compile Windows binary using mingw
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { execSync } = require("child_process");
+        try {
+          execSync(
+            `x86_64-w64-mingw32-g++ -static -static-libgcc -static-libstdc++ -o "${winServerBin}" "${winServerSrc}" -luser32 -lkernel32`,
+            { stdio: "inherit" }
+          );
+          console.log("[prePackage] WinKeyServer.exe compiled successfully");
+        } catch (err) {
+          console.warn("[prePackage] Failed to cross-compile WinKeyServer, Windows PTT may not work");
+          console.warn("[prePackage] Error:", err);
+        }
+      } else if (platform === "linux") {
+        console.log("[prePackage] Building for Linux, compiling keyspy X11KeyServer...");
+        
+        const x11ServerSrc = path.join(keyspyPath, "native", "X11KeyServer", "main.cpp");
+        const buildDir = path.join(keyspyPath, "build");
+        const x11ServerBin = path.join(buildDir, "X11KeyServer");
+        
+        fs.mkdirSync(buildDir, { recursive: true });
+        
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { execSync } = require("child_process");
+        try {
+          execSync(
+            `c++ "${x11ServerSrc}" -o "${x11ServerBin}" -lX11 -lXi -static-libgcc -static-libstdc++`,
+            { stdio: "inherit" }
+          );
+          execSync(`strip "${x11ServerBin}"`);
+          console.log("[prePackage] X11KeyServer compiled successfully");
+        } catch (err) {
+          console.warn("[prePackage] Failed to compile X11KeyServer, Linux PTT may not work");
+          console.warn("[prePackage] Error:", err);
+        }
+      } else {
+        console.log(`[prePackage] Building for ${platform}, keyspy uses prebuilt runtime binaries`);
       }
-
-      console.log(
-        "[prePackage] Building for Windows, downloading iohook binaries...",
-      );
-
-      const iohookVersion = "1.1.7";
-      const electronAbi = "139"; // electron 38.x
-      const arch = "x64";
-
-      const url = `https://github.com/tkomde/iohook/releases/download/v${iohookVersion}/iohook-v${iohookVersion}-electron-v${electronAbi}-win32-${arch}.tar.gz`;
-      const downloadPath = path.join(__dirname, ".vite", "iohook-win32.tar.gz");
-      const extractPath = path.join(
-        __dirname,
-        "node_modules",
-        "@tkomde",
-        "iohook",
-        "builds",
-        `electron-v${electronAbi}-win32-${arch}`,
-      );
-
-      fs.mkdirSync(path.dirname(downloadPath), { recursive: true });
-
-      console.log(`[prePackage] Downloading from: ${url}`);
-      await new Promise<void>((resolve, reject) => {
-        const file = fs.createWriteStream(downloadPath);
-        https
-          .get(url, (response) => {
-            if (response.statusCode === 302 || response.statusCode === 301) {
-              const redirectUrl = response.headers.location;
-              if (!redirectUrl) {
-                reject(new Error("Redirect location not found"));
-                return;
-              }
-              https
-                .get(redirectUrl, (redirectResponse) => {
-                  redirectResponse.pipe(file);
-                  file.on("finish", () => {
-                    file.close();
-                    console.log("[prePackage] Download complete");
-                    resolve();
-                  });
-                })
-                .on("error", reject);
-            } else {
-              response.pipe(file);
-              file.on("finish", () => {
-                file.close();
-                console.log("[prePackage] Download complete");
-                resolve();
-              });
-            }
-          })
-          .on("error", (err) => {
-            fs.unlink(downloadPath, () => {
-              /* ignore unlink errors */
-            });
-            reject(err);
-          });
-      });
-
-      console.log("[prePackage] Extracting binaries...");
-      fs.mkdirSync(extractPath, { recursive: true });
-      await tar.x({
-        file: downloadPath,
-        cwd: extractPath,
-        strip: 1,
-      });
-
-      console.log(
-        `[prePackage] Windows iohook binaries extracted to: ${extractPath}`,
-      );
-
-      fs.unlinkSync(downloadPath);
     },
     postPackage: async (_forgeConfig, options) => {
-      // copy native iohook module to the packaged app
-      const sourceDir = path.join(
-        __dirname,
-        "node_modules",
-        "@tkomde",
-        "iohook",
-      );
-      const targetDir = path.join(
+      const copyRecursive = (src: string, dest: string) => {
+        const entries = fs.readdirSync(src, { withFileTypes: true });
+        for (const entry of entries) {
+          const srcPath = path.join(src, entry.name);
+          const destPath = path.join(dest, entry.name);
+          if (entry.isDirectory()) {
+            fs.mkdirSync(destPath, { recursive: true });
+            copyRecursive(srcPath, destPath);
+          } else {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        }
+      };
+
+      const unpackedNodeModules = path.join(
         options.outputPaths[0],
         "resources",
         "app.asar.unpacked",
         "node_modules",
-        "@tkomde",
-        "iohook",
       );
 
-      if (fs.existsSync(sourceDir)) {
-        console.log("Copying iohook native module to:", targetDir);
-        fs.mkdirSync(targetDir, { recursive: true });
+      const keyspySource = path.join(__dirname, "node_modules", "keyspy");
+      const keyspyTarget = path.join(unpackedNodeModules, "keyspy");
 
-        // copy the entire module
-        const copyRecursive = (src: string, dest: string) => {
-          const entries = fs.readdirSync(src, { withFileTypes: true });
-          for (const entry of entries) {
-            const srcPath = path.join(src, entry.name);
-            const destPath = path.join(dest, entry.name);
-            if (entry.isDirectory()) {
-              fs.mkdirSync(destPath, { recursive: true });
-              copyRecursive(srcPath, destPath);
-            } else {
-              fs.copyFileSync(srcPath, destPath);
-            }
-          }
-        };
+      if (fs.existsSync(keyspySource)) {
+        console.log("Copying keyspy to:", keyspyTarget);
+        fs.mkdirSync(keyspyTarget, { recursive: true });
+        copyRecursive(keyspySource, keyspyTarget);
+        console.log("✓ keyspy copied successfully");
+      }
 
-        copyRecursive(sourceDir, targetDir);
-        console.log("✓ iohook native module copied successfully");
+      const sudoPromptSource = path.join(__dirname, "node_modules", "@expo", "sudo-prompt");
+      const sudoPromptTarget = path.join(unpackedNodeModules, "@expo", "sudo-prompt");
+      
+      if (fs.existsSync(sudoPromptSource) && !fs.existsSync(sudoPromptTarget)) {
+        console.log("Copying @expo/sudo-prompt to:", sudoPromptTarget);
+        fs.mkdirSync(sudoPromptTarget, { recursive: true });
+        copyRecursive(sudoPromptSource, sudoPromptTarget);
+        console.log("✓ @expo/sudo-prompt copied successfully");
       }
     },
   },

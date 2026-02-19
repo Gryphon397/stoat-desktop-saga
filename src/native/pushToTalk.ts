@@ -1,30 +1,34 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, ipcMain } from "electron";
 import * as path from "node:path";
 
 import { config } from "./config";
 import { mainWindow } from "./window";
 
-// dynamically load iohook with path resolution for production
-function loadIohook() {
+let GlobalKeyboardListener: any = null;
+let keyboardListenerInstance: any = null;
+let keyspyListener: ((event: any, isDown: Record<string, boolean>) => boolean | void) | null = null;
+
+function loadKeyspy() {
   try {
-    // try standard import first (development)
-    return require("@tkomde/iohook");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const keyspy = require("keyspy");
+    GlobalKeyboardListener = keyspy.GlobalKeyboardListener;
   } catch {
-    // in production, module is in app.asar.unpacked
     const unpackedPath = path.join(
       process.resourcesPath,
       "app.asar.unpacked",
       "node_modules",
-      "@tkomde",
-      "iohook"
+      "keyspy",
+      "dist",
+      "index.js"
     );
-    return require(unpackedPath);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const keyspy = require(unpackedPath);
+    GlobalKeyboardListener = keyspy.GlobalKeyboardListener;
   }
 }
 
-const iohook = loadIohook();
-
-// Debug logging - check NODE_ENV since app.isPackaged may not work in dev mode
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 function pttLog(...args: unknown[]) {
   if (isDev) {
@@ -33,7 +37,7 @@ function pttLog(...args: unknown[]) {
 }
 
 let isPttActive = false;
-let isIohookRunning = false;
+let isKeyspyRunning = false;
 let isWindowFocused = false;
 
 let currentKeybind = "";
@@ -41,15 +45,14 @@ let keybindModifiers = { ctrl: false, shift: false, alt: false, meta: false };
 
 let releaseDelayTimeout: NodeJS.Timeout | null = null;
 
-// track which keys are currently held down
 const heldKeys = new Set<string>();
-let pttActivationKey: string | null = null; // track which key activated PTT
+let pttActivationKey: string | null = null;
 
 function getReleaseDelay(): number {
   return config.pushToTalkReleaseDelay || 0;
 }
 
-pttLog("Module loaded (using before-input-event)");
+pttLog("Module loaded (using keyspy)");
 
 function sendPttState(active: boolean) {
   if (
@@ -80,9 +83,8 @@ function sendPttConfig() {
 }
 
 function deactivatePtt(reason: string, useDelay = true) {
-  pttLog(`[DEBUG] deactivatePtt called: reason="${reason}", isPttActive=${isPttActive}, useDelay=${useDelay}`);
+  pttLog(`deactivatePtt: reason="${reason}", isPttActive=${isPttActive}`);
   
-  // clear any existing release delay timeout
   if (releaseDelayTimeout) {
     clearTimeout(releaseDelayTimeout);
     releaseDelayTimeout = null;
@@ -104,14 +106,11 @@ function deactivatePtt(reason: string, useDelay = true) {
       isPttActive = false;
       pttLog("PTT deactivated:", reason);
       sendPttState(false);
-    } else {
-      pttLog(`[DEBUG] Skipping deactivation - PTT already inactive`);
     }
   }
 }
 
 function activatePtt(reason: string) {
-  // cancel any pending release delay when re-activating
   if (releaseDelayTimeout) {
     clearTimeout(releaseDelayTimeout);
     releaseDelayTimeout = null;
@@ -126,107 +125,119 @@ function activatePtt(reason: string) {
 }
 
 function parseAccelerator(accelerator: string) {
-  const parts = accelerator
-    .toLowerCase()
-    .split(/[+-]/)
-    .map((p) => p.trim());
-  const key = parts.pop() || "";
+  const parts = accelerator.split("+").map((p) => p.trim());
+  let key = parts.pop() || "";
+  
+  if (key === "" && accelerator.endsWith("+")) {
+    key = "+";
+  }
+  
+  const modifiers = parts.map((p) => p.toLowerCase());
 
   return {
-    key,
-    ctrl: parts.includes("ctrl") || parts.includes("control"),
-    shift: parts.includes("shift"),
-    alt: parts.includes("alt"),
+    key: key.toLowerCase(),
+    ctrl: modifiers.includes("ctrl") || modifiers.includes("control"),
+    shift: modifiers.includes("shift"),
+    alt: modifiers.includes("alt"),
     meta:
-      parts.includes("meta") ||
-      parts.includes("cmd") ||
-      parts.includes("command"),
+      modifiers.includes("meta") ||
+      modifiers.includes("cmd") ||
+      modifiers.includes("command"),
   };
 }
 
-function matchesKeybind(input: Electron.Input): boolean {
-  // only check the key, not modifiers, to allow PTT to work
-  // even when modifiers are held (e.g., Shift+V, Ctrl+V)
-  return input.key.toLowerCase() === currentKeybind.toLowerCase();
+function hasKeybindModifiers(): boolean {
+  return keybindModifiers.ctrl || keybindModifiers.shift || keybindModifiers.alt || keybindModifiers.meta;
 }
 
-/**
- * Handle before-input-event from webContents
- * This fires for ALL keyboard input, even when window appears unfocused on XWayland
- *
- * IMPORTANT: We do NOT call preventDefault(), so the key still gets typed in inputs.
- * This allows PTT to work AND the key to be typed (like Discord).
- */
+function matchesKeybind(input: Electron.Input, checkModifiers = true): boolean {
+  const keyMatches = input.key.toLowerCase() === currentKeybind.toLowerCase();
+  if (!keyMatches) return false;
+  
+  if (!checkModifiers) return true;
+  
+  if (!hasKeybindModifiers()) {
+    return true;
+  }
+  
+  const ctrlMatch = keybindModifiers.ctrl === input.control;
+  const shiftMatch = keybindModifiers.shift === input.shift;
+  const altMatch = keybindModifiers.alt === input.alt;
+  const metaMatch = keybindModifiers.meta === input.meta;
+  
+  return ctrlMatch && shiftMatch && altMatch && metaMatch;
+}
+
+function normalizeKeyName(name: string | undefined): string {
+  if (!name) return "";
+  return name.toLowerCase();
+}
+
+function matchesKeyspyEvent(event: any, isDown: Record<string, boolean>, checkModifiers = true): boolean {
+  const keyName = normalizeKeyName(event.name);
+  const keyMatches = keyName === currentKeybind.toLowerCase();
+  if (!keyMatches) return false;
+  
+  if (!checkModifiers) return true;
+  
+  if (!hasKeybindModifiers()) {
+    return true;
+  }
+  
+  const ctrlMatch = keybindModifiers.ctrl === (isDown["LEFT CTRL"] || isDown["RIGHT CTRL"] || false);
+  const shiftMatch = keybindModifiers.shift === (isDown["LEFT SHIFT"] || isDown["RIGHT SHIFT"] || false);
+  const altMatch = keybindModifiers.alt === (isDown["LEFT ALT"] || isDown["RIGHT ALT"] || false);
+  const metaMatch = keybindModifiers.meta === (isDown["LEFT META"] || isDown["RIGHT META"] || false);
+  
+  return ctrlMatch && shiftMatch && altMatch && metaMatch;
+}
+
 function handleBeforeInputEvent(event: Electron.Event, input: Electron.Input) {
-  // Use a stable key identifier based on physical key (code) only, not modifiers
-  // This prevents stuck keys when modifiers change between keydown and keyup
   const keyIdentifier = input.code;
-  const isPttKey = matchesKeybind(input);
+  const isKeyUpForActivePtt = input.type === "keyUp" && pttActivationKey === keyIdentifier;
+  const isPttKey = isKeyUpForActivePtt
+    ? matchesKeybind(input, false)
+    : matchesKeybind(input);
   const focused = mainWindow?.isFocused() ?? false;
 
-  // DEBUG: Log ALL keyboard events
   pttLog(
-    `[DEBUG] Input event: type=${input.type}, key=${input.key}, code=${input.code}, ` +
-    `modifiers=${JSON.stringify({ctrl: input.control, shift: input.shift, alt: input.alt, meta: input.meta})}, ` +
-    `isPttKey=${isPttKey}, heldKeys=[${Array.from(heldKeys).join(', ')}], ` +
-    `pttActive=${isPttActive}, pttActivationKey=${pttActivationKey}, focused=${focused}`
+    `Input event: type=${input.type}, key=${input.key}, code=${input.code}, ` +
+    `isPttKey=${isPttKey}, pttActive=${isPttActive}, focused=${focused}`
   );
 
   if (!isPttKey) {
-    // Track held keys for non-PTT keys too (for complete state tracking)
     if (input.type === "keyDown") {
       heldKeys.add(keyIdentifier);
     } else if (input.type === "keyUp") {
       heldKeys.delete(keyIdentifier);
     }
-    pttLog(`[DEBUG] Ignoring non-PTT key: ${input.key}`);
     return;
   }
 
   if (config.pushToTalkMode === "hold") {
     if (input.type === "keyDown") {
-      // check for auto-repeat BEFORE adding to heldKeys
       if (heldKeys.has(keyIdentifier)) {
-        pttLog(`[DEBUG] Ignoring auto-repeat keyDown for: ${keyIdentifier}`);
+        pttLog(`Ignoring auto-repeat keyDown for: ${keyIdentifier}`);
         return;
       }
       
       heldKeys.add(keyIdentifier);
       
-      // activate if:
-      // 1. PTT is not active, OR
-      // 2. PTT is active but waiting for delay (pttActivationKey was cleared on keyUp)
-      //    - This handles the case where user releases and immediately re-presses
       if (!isPttActive || pttActivationKey === null) {
         pttActivationKey = keyIdentifier;
-        pttLog(`[DEBUG] PTT activated by key: ${keyIdentifier}`);
-        activatePtt(
-          "before-input-event keyDown" +
-            (focused ? " (focused)" : " (unfocused)"),
-        );
-      } else {
-        pttLog(`[DEBUG] PTT already active with key ${pttActivationKey}, ignoring ${keyIdentifier}`);
+        activatePtt("before-input-event keyDown" + (focused ? " (focused)" : " (unfocused)"));
       }
     } else if (input.type === "keyUp") {
       heldKeys.delete(keyIdentifier);
       
-      // deactivate if this is the same key that activated PTT
       if (pttActivationKey === keyIdentifier) {
-        pttLog(`[DEBUG] PTT deactivating - matching keyUp: ${keyIdentifier}`);
         pttActivationKey = null;
-        deactivatePtt(
-          "before-input-event keyUp" + (focused ? " (focused)" : " (unfocused)"),
-        );
-      } else {
-        pttLog(`[DEBUG] Ignoring keyUp - key ${keyIdentifier} != activationKey ${pttActivationKey}`);
+        deactivatePtt("before-input-event keyUp" + (focused ? " (focused)" : " (unfocused)"));
       }
     }
   } else {
-    // toggle mode - only respond to keyDown
     if (input.type === "keyDown") {
-      // check for auto-repeat
       if (heldKeys.has(keyIdentifier)) {
-        pttLog(`[DEBUG] Ignoring auto-repeat keyDown for toggle: ${keyIdentifier}`);
         return;
       }
       heldKeys.add(keyIdentifier);
@@ -240,152 +251,109 @@ function handleBeforeInputEvent(event: Electron.Event, input: Electron.Input) {
   }
 }
 
-function matchesIohookEvent(event: any): boolean {
-  // iohook event structure: { keycode, rawcode, type, ... }
-  // convert to key name and check if it matches the keybind
-  // note: we only check the key, not modifiers, to allow PTT to work
-  // even when modifiers are held (e.g., Shift+V, Ctrl+V)
-  const key = iohookKeycodeToString(event.keycode);
-  return key.toLowerCase() === currentKeybind.toLowerCase();
-}
-
-// iohook uses libuiohook keycodes which are different per platform
-// These are the main keycodes for Linux/X11 (most common for development)
-const IOHOOK_KEYCODES: Record<number, string> = {
-  // Letters
-  30: "a", 48: "b", 46: "c", 32: "d", 18: "e", 33: "f", 34: "g", 35: "h",
-  23: "i", 36: "j", 37: "k", 38: "l", 50: "m", 49: "n", 24: "o", 25: "p",
-  16: "q", 19: "r", 31: "s", 20: "t", 22: "u", 47: "v", 17: "w", 45: "x",
-  21: "y", 44: "z",
-  // Numbers
-  11: "0", 2: "1", 3: "2", 4: "3", 5: "4", 6: "5", 7: "6", 8: "7", 9: "8", 10: "9",
-  // Special keys
-  1: "escape", 14: "backspace", 15: "tab", 28: "return", 57: "space",
-  42: "shift", 54: "shift", 29: "control", 97: "control",
-  56: "alt", 100: "alt", 125: "meta", 126: "meta",
-  58: "capslock", 59: "f1", 60: "f2", 61: "f3", 62: "f4",
-  63: "f5", 64: "f6", 65: "f7", 66: "f8", 67: "f9",
-  68: "f10", 87: "f11", 88: "f12",
-  // Numpad
-  82: "0", 79: "1", 80: "2", 81: "3", 75: "4", 76: "5",
-  77: "6", 71: "7", 72: "8", 73: "9",
-};
-
-function iohookKeycodeToString(keycode: number): string {
-  return IOHOOK_KEYCODES[keycode] || String(keycode);
-}
-
-let areIohookListenersSetup = false;
-
-function setupIohookListeners(): void {
-  if (areIohookListenersSetup) {
-    pttLog("IOHook listeners already setup");
+async function startKeyspy(): Promise<void> {
+  if (isKeyspyRunning) {
+    pttLog("Keyspy already running");
     return;
   }
 
-  pttLog("Setting up iohook listeners...");
+  if (!GlobalKeyboardListener) {
+    loadKeyspy();
+  }
 
-  // Handle keydown events
-  iohook.on("keydown", (event: any) => {
-    pttLog(`[DEBUG] IOHook keydown: keycode=${event.keycode}, rawcode=${event.rawcode}`);
-    
-    if (!matchesIohookEvent(event)) {
-      return;
-    }
-
-    // Use keycode only (physical key position) for stable tracking
-    // rawcode changes with modifiers (e.g., v=118, V=86 with Shift)
-    const keyIdentifier = String(event.keycode);
-    
-    // Ignore if already held (auto-repeat)
-    if (heldKeys.has(keyIdentifier)) {
-      pttLog(`[DEBUG] IOHook ignoring auto-repeat for: ${keyIdentifier}`);
-      return;
-    }
-
-    heldKeys.add(keyIdentifier);
-
-    if (config.pushToTalkMode === "hold") {
-      // activate if:
-      // 1. PTT is not active, OR
-      // 2. PTT is active but in release delay (pttActivationKey === null)
-      //    - This handles the case where user releases and re-presses during delay
-      if (!isPttActive || pttActivationKey === null) {
-        pttActivationKey = keyIdentifier;
-        pttLog(`[DEBUG] IOHook PTT activated by key: ${keyIdentifier}`);
-        activatePtt("iohook global keydown");
-      } else {
-        pttLog(`[DEBUG] IOHook PTT already active with key ${pttActivationKey}, ignoring ${keyIdentifier}`);
-      }
-    } else {
-      // toggle mode
-      isPttActive = !isPttActive;
-      sendPttState(isPttActive);
-      pttLog("IOHook PTT toggled:", isPttActive ? "ON" : "OFF");
-    }
-  });
-
-  // Handle keyup events
-  iohook.on("keyup", (event: any) => {
-    pttLog(`[DEBUG] IOHook keyup: keycode=${event.keycode}, rawcode=${event.rawcode}`);
-    
-    if (!matchesIohookEvent(event)) {
-      return;
-    }
-
-    // use keycode only for stable tracking
-    const keyIdentifier = String(event.keycode);
-    heldKeys.delete(keyIdentifier);
-
-    if (config.pushToTalkMode === "hold") {
-      // deactivate if this is the same key that activated PTT
-      if (pttActivationKey === keyIdentifier) {
-        pttLog(`[DEBUG] IOHook PTT deactivating - matching keyUp: ${keyIdentifier}`);
-        pttActivationKey = null;
-        deactivatePtt("iohook global keyup");
-      } else {
-        pttLog(`[DEBUG] IOHook ignoring keyUp - key ${keyIdentifier} != activationKey ${pttActivationKey}`);
-      }
-    }
-  });
-
-  areIohookListenersSetup = true;
-  pttLog("✓ IOHook listeners setup");
-}
-
-function startIohook(): void {
-  if (isIohookRunning) {
-    pttLog("IOHook already running");
+  if (!GlobalKeyboardListener) {
+    pttLog("✗ Failed to load keyspy");
     return;
   }
 
-  if (!areIohookListenersSetup) {
-    setupIohookListeners();
-  }
+  pttLog("Starting keyspy...");
 
   try {
-    iohook.start();
-    isIohookRunning = true;
-    pttLog("✓ IOHook started successfully");
+    keyboardListenerInstance = new GlobalKeyboardListener();
+    
+    keyspyListener = (event: any, isDown: Record<string, boolean>) => {
+      const keyName = normalizeKeyName(event.name);
+      const isKeyUpForActivePtt = event.state === "UP" && normalizeKeyName(pttActivationKey) === keyName;
+      const isPttKey = isKeyUpForActivePtt
+        ? matchesKeyspyEvent(event, isDown, false)
+        : matchesKeyspyEvent(event, isDown);
+
+      pttLog(
+        `Keyspy event: name=${event.name}, state=${event.state}, ` +
+        `isPttKey=${isPttKey}, pttActive=${isPttActive}`
+      );
+
+      if (!isPttKey) {
+        return false;
+      }
+
+      if (config.pushToTalkMode === "hold") {
+        if (event.state === "DOWN") {
+          const keyIdentifier = event.name;
+          
+          if (heldKeys.has(keyIdentifier)) {
+            pttLog(`Ignoring auto-repeat for: ${keyIdentifier}`);
+            return false;
+          }
+
+          heldKeys.add(keyIdentifier);
+
+          if (!isPttActive || pttActivationKey === null) {
+            pttActivationKey = keyIdentifier;
+            activatePtt("keyspy global keydown");
+          }
+        } else if (event.state === "UP") {
+          const keyIdentifier = event.name;
+          heldKeys.delete(keyIdentifier);
+
+          if (pttActivationKey === keyIdentifier) {
+            pttActivationKey = null;
+            deactivatePtt("keyspy global keyup");
+          }
+        }
+      } else {
+        if (event.state === "DOWN") {
+          const keyIdentifier = event.name;
+          if (heldKeys.has(keyIdentifier)) {
+            return false;
+          }
+          heldKeys.add(keyIdentifier);
+
+          isPttActive = !isPttActive;
+          sendPttState(isPttActive);
+          pttLog("Keyspy PTT toggled:", isPttActive ? "ON" : "OFF");
+        } else if (event.state === "UP") {
+          heldKeys.delete(event.name);
+        }
+      }
+
+      return false;
+    };
+
+    await keyboardListenerInstance.addListener(keyspyListener);
+    isKeyspyRunning = true;
+    pttLog("✓ Keyspy started successfully");
   } catch (err) {
-    pttLog("✗ Failed to start iohook:", err);
+    pttLog("✗ Failed to start keyspy:", err);
   }
 }
 
-function stopIohook(): void {
-  if (!isIohookRunning) {
+function stopKeyspy(): void {
+  if (!isKeyspyRunning || !keyboardListenerInstance) {
     return;
   }
 
-  pttLog("Stopping iohook...");
+  pttLog("Stopping keyspy...");
   try {
-    iohook.stop();
-    isIohookRunning = false;
+    keyboardListenerInstance.kill();
+    keyboardListenerInstance = null;
+    isKeyspyRunning = false;
     heldKeys.clear();
     pttActivationKey = null;
-    pttLog("✓ IOHook stopped");
+    keyspyListener = null;
+    pttLog("✓ Keyspy stopped");
   } catch (err) {
-    pttLog("✗ Error stopping iohook:", err);
+    pttLog("✗ Error stopping keyspy:", err);
   }
 }
 
@@ -414,15 +382,11 @@ export async function registerPushToTalkHotkey(): Promise<void> {
 
   pttLog("Parsed keybind:", currentKeybind, "modifiers:", keybindModifiers);
 
-  // send PTT config to renderer for DOM interception
   sendPttConfig();
 
-  // set up before-input-event listener (primary method for focused window)
-  // this works on XWayland even when window appears unfocused
   if (mainWindow && !mainWindow.isDestroyed()) {
     pttLog("Setting up before-input-event listener...");
 
-    // remove any existing listener first to avoid duplicates
     mainWindow.webContents.off("before-input-event", handleBeforeInputEvent);
     mainWindow.webContents.on("before-input-event", handleBeforeInputEvent);
     pttLog(
@@ -435,52 +399,38 @@ export async function registerPushToTalkHotkey(): Promise<void> {
     pttLog("✗ Cannot attach before-input-event listener - window not ready");
   }
 
-  // Set up iohook for global key capture when window is blurred
-  setupIohookListeners();
-
-  // Set up focus/blur handlers to manage which input method to use
-  // When focused: use before-input-event
-  // When blurred: iohook handles global keys (real keyup/keydown)
   if (mainWindow && !mainWindow.isDestroyed()) {
-    // Set initial focus state and start/stop iohook accordingly
     isWindowFocused = mainWindow.isFocused();
     
     if (isWindowFocused) {
-      pttLog("Window initially focused - not starting iohook to allow typing");
-      // Don't start iohook when focused - before-input-event will handle keys
+      pttLog("Window initially focused - not starting keyspy to allow typing");
     } else if (config.pushToTalk) {
-      pttLog("Window initially blurred - starting iohook for global PTT");
-      startIohook();
+      pttLog("Window initially blurred - starting keyspy for global PTT");
+      await startKeyspy();
     } else {
-      pttLog("Window initially blurred - PTT disabled, not starting iohook");
+      pttLog("Window initially blurred - PTT disabled, not starting keyspy");
     }
     
     mainWindow.on("focus", () => {
       if (!isWindowFocused) {
-        pttLog("Window focused - stopping iohook and clearing state");
+        pttLog("Window focused - stopping keyspy and clearing state");
         isWindowFocused = true;
-        // Completely stop iohook when focused so it doesn't intercept keys
-        stopIohook();
-        // Clear all held keys to prevent memory leaks and stuck states
+        stopKeyspy();
         heldKeys.clear();
         pttActivationKey = null;
-        pttLog("[DEBUG] Cleared heldKeys and pttActivationKey on focus");
       }
     });
 
     mainWindow.on("blur", () => {
       if (isWindowFocused) {
         isWindowFocused = false;
-        // only start iohook if PTT is enabled
         if (config.pushToTalk) {
-          pttLog("Window blurred - restarting iohook for global PTT");
-          // clear state before starting iohook to ensure clean slate
+          pttLog("Window blurred - starting keyspy for global PTT");
           heldKeys.clear();
           pttActivationKey = null;
-          startIohook();
-          pttLog("[DEBUG] Cleared heldKeys and pttActivationKey on blur");
+          startKeyspy();
         } else {
-          pttLog("Window blurred - PTT disabled, not starting iohook");
+          pttLog("Window blurred - PTT disabled, not starting keyspy");
         }
       }
     });
@@ -488,7 +438,7 @@ export async function registerPushToTalkHotkey(): Promise<void> {
 
   isPttActive = false;
   sendPttState(false);
-  pttLog("✓ PTT initialized with iohook");
+  pttLog("✓ PTT initialized with keyspy");
 }
 
 export function unregisterPushToTalkHotkey(): void {
@@ -496,14 +446,12 @@ export function unregisterPushToTalkHotkey(): void {
 
   deactivatePtt("unregister");
 
-  // remove before-input-event listener
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.off("before-input-event", handleBeforeInputEvent);
     pttLog("Removed before-input-event listener");
   }
 
-  // stop iohook
-  stopIohook();
+  stopKeyspy();
 
   heldKeys.clear();
   pttActivationKey = null;
@@ -514,7 +462,7 @@ export function getPushToTalkState(): boolean {
 }
 
 export function initPushToTalk(): void {
-  pttLog("Initializing PTT (before-input-event method)...");
+  pttLog("Initializing PTT (keyspy method)...");
   pttLog("Config:", {
     enabled: config.pushToTalk,
     keybind: config.pushToTalkKeybind,
@@ -540,10 +488,8 @@ export function initPushToTalk(): void {
     ) => {
       pttLog("Received settings update from renderer:", settings);
 
-      // track if enabled state changed
       const wasEnabled = config.pushToTalk;
 
-      // update config (setters automatically save to store)
       if (typeof settings.enabled === "boolean") {
         config.pushToTalk = settings.enabled;
       }
@@ -557,20 +503,16 @@ export function initPushToTalk(): void {
         config.pushToTalkReleaseDelay = settings.releaseDelay;
       }
 
-      // handle enabling/disabling PTT
       if (typeof settings.enabled === "boolean") {
         if (settings.enabled && !wasEnabled) {
-          // PTT was just enabled - register hotkey
           pttLog("PTT enabled, registering hotkey...");
           registerPushToTalkHotkey();
         } else if (!settings.enabled && wasEnabled) {
-          // PTT was just disabled - unregister hotkey
           pttLog("PTT disabled, unregistering hotkey...");
           unregisterPushToTalkHotkey();
         }
       }
 
-      // send updated config back to renderer
       sendPttConfig();
 
       pttLog("Config updated and saved");

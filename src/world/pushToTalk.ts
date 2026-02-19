@@ -11,6 +11,14 @@ interface PttConfig {
   releaseDelay: number;
 }
 
+interface ParsedKeybind {
+  key: string;
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+  meta: boolean;
+}
+
 let pttConfig: PttConfig = {
   enabled: false,
   keybind: "V",
@@ -18,13 +26,49 @@ let pttConfig: PttConfig = {
   releaseDelay: 0,
 };
 
+let parsedKeybind: ParsedKeybind = { key: "v", ctrl: false, shift: false, alt: false, meta: false };
+
 function pttLog(...args: unknown[]) {
   console.log("[PTT-Renderer]", ...args);
 }
 
-function matchesPttKeybind(e: KeyboardEvent): boolean {
-  const matches = e.key.toLowerCase() === pttConfig.keybind.toLowerCase();
-  pttLog(`[DEBUG] matchesPttKeybind: e.key="${e.key}", keybind="${pttConfig.keybind}", matches=${matches}`);
+function parseAccelerator(accelerator: string): ParsedKeybind {
+  // split on "+" only (not "-") to allow keys like "-" and ";"
+  const parts = accelerator.split("+").map((p) => p.trim());
+  let key = parts.pop() || "";
+  
+  // if key is empty and accelerator ends with "+", the key is "+"
+  if (key === "" && accelerator.endsWith("+")) {
+    key = "+";
+  }
+  
+  const modifiers = parts.map((p) => p.toLowerCase());
+  
+  return {
+    key: key.toLowerCase(),
+    ctrl: modifiers.includes("ctrl") || modifiers.includes("control"),
+    shift: modifiers.includes("shift"),
+    alt: modifiers.includes("alt"),
+    meta: modifiers.includes("meta") || modifiers.includes("cmd") || modifiers.includes("command"),
+  };
+}
+
+function matchesPttKeybind(e: KeyboardEvent, checkModifiers = true): boolean {
+  const keyMatches = e.key.toLowerCase() === parsedKeybind.key;
+  if (!keyMatches) {
+    pttLog(`[DEBUG] matchesPttKeybind: e.key="${e.key}", keybind="${pttConfig.keybind}", key mismatch`);
+    return false;
+  }
+  
+  if (!checkModifiers) return true;
+  
+  const ctrlMatch = parsedKeybind.ctrl === e.ctrlKey;
+  const shiftMatch = parsedKeybind.shift === e.shiftKey;
+  const altMatch = parsedKeybind.alt === e.altKey;
+  const metaMatch = parsedKeybind.meta === e.metaKey;
+  const matches = ctrlMatch && shiftMatch && altMatch && metaMatch;
+  
+  pttLog(`[DEBUG] matchesPttKeybind: e.key="${e.key}", keybind="${pttConfig.keybind}", modifiers=${JSON.stringify({ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey})}, matches=${matches}`);
   return matches;
 }
 
@@ -56,7 +100,9 @@ function handleKeyDown(e: KeyboardEvent) {
 function handleKeyUp(e: KeyboardEvent) {
   pttLog(`[DEBUG] DOM keyup: key="${e.key}", code="${e.code}", modifiers=${JSON.stringify({ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey})}, enabled=${pttConfig.enabled}`);
   
-  if (!pttConfig.enabled || !matchesPttKeybind(e)) {
+  // for keyUp, relax modifier checks - the modifier may have been released
+  // before the main key in combos like Shift+Space
+  if (!pttConfig.enabled || !matchesPttKeybind(e, false)) {
     pttLog(`[DEBUG] DOM keyup ignored - not PTT key or disabled`);
     return;
   }
@@ -101,6 +147,7 @@ ipcRenderer.on(
   ) => {
     pttLog("Received PTT config from main:", config);
     pttConfig = { ...pttConfig, ...config };
+    parsedKeybind = parseAccelerator(pttConfig.keybind);
     // Notify all config listeners
     configCallbacks.forEach((cb) => {
       try {
