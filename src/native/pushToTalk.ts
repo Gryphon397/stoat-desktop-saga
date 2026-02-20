@@ -1,13 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { app, ipcMain } from "electron";
 import * as path from "node:path";
+
+import { app, ipcMain } from "electron";
 
 import { config } from "./config";
 import { mainWindow } from "./window";
 
 let GlobalKeyboardListener: any = null;
 let keyboardListenerInstance: any = null;
-let keyspyListener: ((event: any, isDown: Record<string, boolean>) => boolean | void) | null = null;
+let keyspyListener:
+  | ((event: any, isDown: Record<string, boolean>) => boolean | void)
+  | null = null;
 
 function loadKeyspy() {
   try {
@@ -21,7 +24,7 @@ function loadKeyspy() {
       "node_modules",
       "keyspy",
       "dist",
-      "index.js"
+      "index.js",
     );
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const keyspy = require(unpackedPath);
@@ -84,7 +87,7 @@ function sendPttConfig() {
 
 function deactivatePtt(reason: string, useDelay = true) {
   pttLog(`deactivatePtt: reason="${reason}", isPttActive=${isPttActive}`);
-  
+
   if (releaseDelayTimeout) {
     clearTimeout(releaseDelayTimeout);
     releaseDelayTimeout = null;
@@ -127,11 +130,11 @@ function activatePtt(reason: string) {
 function parseAccelerator(accelerator: string) {
   const parts = accelerator.split("+").map((p) => p.trim());
   let key = parts.pop() || "";
-  
+
   if (key === "" && accelerator.endsWith("+")) {
     key = "+";
   }
-  
+
   const modifiers = parts.map((p) => p.toLowerCase());
 
   return {
@@ -147,24 +150,29 @@ function parseAccelerator(accelerator: string) {
 }
 
 function hasKeybindModifiers(): boolean {
-  return keybindModifiers.ctrl || keybindModifiers.shift || keybindModifiers.alt || keybindModifiers.meta;
+  return (
+    keybindModifiers.ctrl ||
+    keybindModifiers.shift ||
+    keybindModifiers.alt ||
+    keybindModifiers.meta
+  );
 }
 
 function matchesKeybind(input: Electron.Input, checkModifiers = true): boolean {
   const keyMatches = input.key.toLowerCase() === currentKeybind.toLowerCase();
   if (!keyMatches) return false;
-  
+
   if (!checkModifiers) return true;
-  
+
   if (!hasKeybindModifiers()) {
     return true;
   }
-  
+
   const ctrlMatch = keybindModifiers.ctrl === input.control;
   const shiftMatch = keybindModifiers.shift === input.shift;
   const altMatch = keybindModifiers.alt === input.alt;
   const metaMatch = keybindModifiers.meta === input.meta;
-  
+
   return ctrlMatch && shiftMatch && altMatch && metaMatch;
 }
 
@@ -173,28 +181,81 @@ function normalizeKeyName(name: string | undefined): string {
   return name.toLowerCase();
 }
 
-function matchesKeyspyEvent(event: any, isDown: Record<string, boolean>, checkModifiers = true): boolean {
-  const keyName = normalizeKeyName(event.name);
-  const keyMatches = keyName === currentKeybind.toLowerCase();
+function keyspyKeyToAccelerator(keyspyName: string): string {
+  const key = normalizeKeyName(keyspyName);
+
+  const keyMapping: Record<string, string> = {
+    oem_1: ";",
+    oem_2: "/",
+    oem_3: "`",
+    oem_4: "[",
+    oem_5: "\\",
+    oem_6: "]",
+    oem_7: "'",
+    oem_comma: ",",
+    oem_period: ".",
+    oem_minus: "-",
+    oem_plus: "=",
+    semicolon: ";",
+    slash: "/",
+    backquote: "`",
+    bracketleft: "[",
+    backslash: "\\",
+    bracketright: "]",
+    quote: "'",
+    apostrophe: "'",
+    grave: "`",
+    leftbrace: "[",
+    rightbrace: "]",
+    comma: ",",
+    period: ".",
+    dot: ".",
+    minus: "-",
+    equal: "=",
+    equals: "=",
+    space: " ",
+  };
+
+  return keyMapping[key] || key;
+}
+
+function matchesKeyspyEvent(
+  event: any,
+  isDown: Record<string, boolean>,
+  checkModifiers = true,
+): boolean {
+  const keyspyKeyName = normalizeKeyName(event.name);
+  const normalizedAccelerator = currentKeybind.toLowerCase();
+  const mappedKeyspyKey = keyspyKeyToAccelerator(keyspyKeyName);
+  const keyMatches = mappedKeyspyKey === normalizedAccelerator;
   if (!keyMatches) return false;
-  
+
   if (!checkModifiers) return true;
-  
+
   if (!hasKeybindModifiers()) {
     return true;
   }
-  
-  const ctrlMatch = keybindModifiers.ctrl === (isDown["LEFT CTRL"] || isDown["RIGHT CTRL"] || false);
-  const shiftMatch = keybindModifiers.shift === (isDown["LEFT SHIFT"] || isDown["RIGHT SHIFT"] || false);
-  const altMatch = keybindModifiers.alt === (isDown["LEFT ALT"] || isDown["RIGHT ALT"] || false);
-  const metaMatch = keybindModifiers.meta === (isDown["LEFT META"] || isDown["RIGHT META"] || false);
-  
+
+  const ctrlMatch =
+    keybindModifiers.ctrl ===
+    (isDown["LEFT CTRL"] || isDown["RIGHT CTRL"] || false);
+  const shiftMatch =
+    keybindModifiers.shift ===
+    (isDown["LEFT SHIFT"] || isDown["RIGHT SHIFT"] || false);
+  const altMatch =
+    keybindModifiers.alt ===
+    (isDown["LEFT ALT"] || isDown["RIGHT ALT"] || false);
+  const metaMatch =
+    keybindModifiers.meta ===
+    (isDown["LEFT META"] || isDown["RIGHT META"] || false);
+
   return ctrlMatch && shiftMatch && altMatch && metaMatch;
 }
 
 function handleBeforeInputEvent(event: Electron.Event, input: Electron.Input) {
   const keyIdentifier = input.code;
-  const isKeyUpForActivePtt = input.type === "keyUp" && pttActivationKey === keyIdentifier;
+  const isKeyUpForActivePtt =
+    input.type === "keyUp" && pttActivationKey === keyIdentifier;
   const isPttKey = isKeyUpForActivePtt
     ? matchesKeybind(input, false)
     : matchesKeybind(input);
@@ -202,7 +263,7 @@ function handleBeforeInputEvent(event: Electron.Event, input: Electron.Input) {
 
   pttLog(
     `Input event: type=${input.type}, key=${input.key}, code=${input.code}, ` +
-    `isPttKey=${isPttKey}, pttActive=${isPttActive}, focused=${focused}`
+      `isPttKey=${isPttKey}, pttActive=${isPttActive}, focused=${focused}`,
   );
 
   if (!isPttKey) {
@@ -220,19 +281,25 @@ function handleBeforeInputEvent(event: Electron.Event, input: Electron.Input) {
         pttLog(`Ignoring auto-repeat keyDown for: ${keyIdentifier}`);
         return;
       }
-      
+
       heldKeys.add(keyIdentifier);
-      
+
       if (!isPttActive || pttActivationKey === null) {
         pttActivationKey = keyIdentifier;
-        activatePtt("before-input-event keyDown" + (focused ? " (focused)" : " (unfocused)"));
+        activatePtt(
+          "before-input-event keyDown" +
+            (focused ? " (focused)" : " (unfocused)"),
+        );
       }
     } else if (input.type === "keyUp") {
       heldKeys.delete(keyIdentifier);
-      
+
       if (pttActivationKey === keyIdentifier) {
         pttActivationKey = null;
-        deactivatePtt("before-input-event keyUp" + (focused ? " (focused)" : " (unfocused)"));
+        deactivatePtt(
+          "before-input-event keyUp" +
+            (focused ? " (focused)" : " (unfocused)"),
+        );
       }
     }
   } else {
@@ -241,7 +308,7 @@ function handleBeforeInputEvent(event: Electron.Event, input: Electron.Input) {
         return;
       }
       heldKeys.add(keyIdentifier);
-      
+
       isPttActive = !isPttActive;
       sendPttState(isPttActive);
       pttLog("PTT toggled:", isPttActive ? "ON" : "OFF");
@@ -270,7 +337,7 @@ async function startKeyspy(): Promise<void> {
 
   try {
     keyboardListenerInstance = new GlobalKeyboardListener();
-    
+
     // handle unexpected process exit
     if (keyboardListenerInstance.proc) {
       keyboardListenerInstance.proc.on("exit", (code: number) => {
@@ -282,7 +349,7 @@ async function startKeyspy(): Promise<void> {
         }
       });
     }
-    
+
     keyspyListener = (event: any, isDown: Record<string, boolean>) => {
       // ignore keyspy events when window is focused - before-input-event handles those
       if (isWindowFocused) {
@@ -290,14 +357,15 @@ async function startKeyspy(): Promise<void> {
       }
 
       const keyName = normalizeKeyName(event.name);
-      const isKeyUpForActivePtt = event.state === "UP" && normalizeKeyName(pttActivationKey) === keyName;
+      const isKeyUpForActivePtt =
+        event.state === "UP" && normalizeKeyName(pttActivationKey) === keyName;
       const isPttKey = isKeyUpForActivePtt
         ? matchesKeyspyEvent(event, isDown, false)
         : matchesKeyspyEvent(event, isDown);
 
       pttLog(
         `Keyspy event: name=${event.name}, state=${event.state}, ` +
-        `isPttKey=${isPttKey}, pttActive=${isPttActive}`
+          `isPttKey=${isPttKey}, pttActive=${isPttActive}`,
       );
 
       if (!isPttKey) {
@@ -307,7 +375,7 @@ async function startKeyspy(): Promise<void> {
       if (config.pushToTalkMode === "hold") {
         if (event.state === "DOWN") {
           const keyIdentifier = event.name;
-          
+
           if (heldKeys.has(keyIdentifier)) {
             pttLog(`Ignoring auto-repeat for: ${keyIdentifier}`);
             return false;
@@ -400,9 +468,9 @@ export async function registerPushToTalkHotkey(): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) {
     isWindowFocused = mainWindow.isFocused();
     pttLog("Window initially focused:", isWindowFocused);
-    
+
     await startKeyspy();
-    
+
     // track focus state for ignoring keyspy events when focused
     mainWindow.on("focus", () => {
       if (!isWindowFocused) {
