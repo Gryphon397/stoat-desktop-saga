@@ -1,12 +1,8 @@
 import { IUpdateInfo, updateElectronApp } from "update-electron-app";
 
-<<<<<<< HEAD
-import { BrowserWindow, Notification, app, shell } from "electron";
-=======
 import { registerIpcHandlers } from "./native/window";
 
 import { BrowserWindow, app, shell, ipcMain } from "electron";
->>>>>>> 00ace43 (Stoat Pixel: server setup screen + persistent server selection)
 import started from "electron-squirrel-startup";
 
 import { autoLaunch } from "./native/autoLaunch";
@@ -61,17 +57,13 @@ const onNotifyUser = (_info: IUpdateInfo) => {
 if (acquiredLock) {
 	registerIpcHandlers();
   // start auto update logic
-<<<<<<< HEAD
-  updateElectronApp({ onNotifyUser });
-=======
 if (app.isPackaged && process.platform === "win32") {
   updateElectronApp({
-    repo: "viznoman/for-desktop",
+    repo: "Gryphon397/stoat-desktop-saga",
     updateInterval: "1 day",
     notifyUser: true,
   });
 }
->>>>>>> 00ace43 (Stoat Pixel: server setup screen + persistent server selection)
 
   // create and configure the app when electron is ready
   app.on("ready", () => {
