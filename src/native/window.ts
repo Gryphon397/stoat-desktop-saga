@@ -7,6 +7,8 @@ import {
   app,
   ipcMain,
   nativeImage,
+  net,
+  protocol,
 } from "electron";
 
 import { getSetupDataUrl, getStartUrl, clearSavedServer, setSavedServer } from "./serverSetup";
@@ -19,6 +21,110 @@ import { updateTrayMenu } from "./tray";
 // global reference to main window
 export let mainWindow: BrowserWindow;
 
+<<<<<<< HEAD
+=======
+// currently in-use build
+export let BUILD_URL: URL;
+
+// Local web assets directory
+let localWebDir: string | null = null;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "stoat",
+    privileges: {
+      standard: true,
+      secure: true,
+      allowServiceWorkers: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
+export function initBuildUrl() {
+  const forceServer = app.commandLine.getSwitchValue("force-server");
+
+  // Try to find local web assets in multiple locations
+  const fs = require("fs");
+  const path = require("path");
+
+  // Possible locations for web-dist
+  const possiblePaths = [
+    // In resources directory (packaged app)
+    path.join(process.resourcesPath, "web-dist"),
+    // Relative to app path (development)
+    path.join(app.getAppPath(), "..", "web-dist"),
+    // Next to the executable
+    path.join(path.dirname(process.execPath), "web-dist"),
+  ];
+
+  for (const testPath of possiblePaths) {
+    const indexPath = path.join(testPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      localWebDir = testPath;
+      console.log("[Window] Found local web assets at:", testPath);
+      break;
+    }
+  }
+
+  if (!forceServer && localWebDir) {
+    // Setup protocol handler for local files
+    setupLocalProtocol();
+    BUILD_URL = new URL("stoat://-/index.html");
+    console.log(
+      "[Window] Loading from local web assets via custom protocol:",
+      localWebDir,
+    );
+  } else {
+    BUILD_URL = new URL(
+      forceServer ||
+        /*MAIN_WINDOW_VITE_DEV_SERVER_URL ??*/ "https://beta.revolt.chat",
+    );
+    console.log("[Window] Loading from remote URL:", BUILD_URL.toString());
+    if (forceServer) {
+      console.log("[Window] (forced server via --force-server flag)");
+    } else if (!localWebDir) {
+      console.log("[Window] (local web assets not found)");
+    }
+  }
+}
+
+function setupLocalProtocol() {
+  // Handle stoat:// protocol
+  protocol.handle("stoat", (request) => {
+    const url = new URL(request.url);
+    let pathname = url.pathname;
+
+    // Default to index.html for root
+    if (!pathname || pathname === "/" || pathname === "-/") {
+      pathname = "/index.html";
+    }
+
+    // Remove leading dash if present (stoat://-/path -> /path)
+    if (pathname.startsWith("/-/")) {
+      pathname = pathname.slice(2);
+    }
+
+    if (!localWebDir) {
+      throw new Error("Local web assets not found");
+    }
+
+    // Construct full file path
+    const filePath = join(localWebDir, pathname);
+
+    // Security check: ensure path is within localWebDir
+    if (!filePath.startsWith(localWebDir)) {
+      console.error("[Protocol] Blocked access outside web-dist:", pathname);
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    // Serve the file
+    return net.fetch("file://" + filePath);
+  });
+}
+
+>>>>>>> trifall/main
 // internal window state
 let shouldQuit = false;
 
@@ -80,6 +186,9 @@ export function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: true,
+      // Disable webSecurity when loading from localhost (dev server) to avoid CSP/CORS issues
+      // Keep it enabled for production (remote URLs)
+      webSecurity: BUILD_URL.protocol === "https:",
     },
   });
 
@@ -143,30 +252,47 @@ export function createMainWindow() {
   mainWindow.on("moved", generateState);
   mainWindow.on("resized", generateState);
 
-  // rebind zoom controls to be more sensible
+  // Handle keyboard shortcuts (zoom + DevTools)
   mainWindow.webContents.on("before-input-event", (event, input) => {
+    // Zoom in with Ctrl+= or Ctrl++
     if (input.control && (input.key === "=" || input.key === "+")) {
-      // zoom in (+)
       event.preventDefault();
       mainWindow.webContents.setZoomLevel(
         mainWindow.webContents.getZoomLevel() + 1,
       );
-    } else if (input.control && input.key === "-") {
-      // zoom out (-)
+      return;
+    }
+
+    // Zoom out with Ctrl+-
+    if (input.control && input.key === "-") {
       event.preventDefault();
       mainWindow.webContents.setZoomLevel(
         mainWindow.webContents.getZoomLevel() - 1,
       );
-    } else if (input.control && input.key === "0") {
-      // reset zoom to default.
+      return;
+    }
+
+    // Reset zoom with Ctrl+0
+    if (input.control && input.key === "0") {
       event.preventDefault();
       mainWindow.webContents.setZoomLevel(0);
-    } else if (
+      return;
+    }
+
+    // Reload with F5 or Ctrl+R
+    if (
       input.key === "F5" ||
       ((input.control || input.meta) && input.key.toLowerCase() === "r")
     ) {
       event.preventDefault();
       mainWindow.webContents.reload();
+      return;
+    }
+
+    // Toggle DevTools with F12
+    if (input.key === "F12" && !input.control && !input.shift && !input.alt) {
+      event.preventDefault();
+      mainWindow.webContents.toggleDevTools();
     }
   });
 
@@ -222,8 +348,6 @@ export function createMainWindow() {
     mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(),
   );
   ipcMain.on("close", () => mainWindow.close());
-
-  // mainWindow.webContents.openDevTools();
 
   // let i = 0;
   // setInterval(() => setBadgeCount((++i % 30) + 1), 1000);

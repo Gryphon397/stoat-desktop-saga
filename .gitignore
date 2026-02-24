@@ -90,3 +90,6 @@ typings/
 
 # Electron-Forge
 out/
+
+**/web-dist
+web-dist

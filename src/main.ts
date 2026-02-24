@@ -8,7 +8,9 @@ import started from "electron-squirrel-startup";
 import { autoLaunch } from "./native/autoLaunch";
 import { config } from "./native/config";
 import { initDiscordRpc } from "./native/discordRpc";
+import { cleanupPushToTalk, initPushToTalk } from "./native/pushToTalk";
 import { initTray } from "./native/tray";
+<<<<<<< HEAD
 import { BUILD_URL, createMainWindow, mainWindow } from "./native/window";
 import Store from "electron-store";
 
@@ -28,6 +30,14 @@ ipcMain.handle("server:getEffective", () => {
   const saved = store.get("serverUrl");
   return saved ?? null;
 });
+=======
+import {
+  BUILD_URL,
+  createMainWindow,
+  initBuildUrl,
+  mainWindow,
+} from "./native/window";
+>>>>>>> trifall/main
 
 // Squirrel-specific logic
 // create/remove shortcuts on Windows when installing / uninstalling
@@ -65,10 +75,14 @@ if (app.isPackaged && process.platform === "win32") {
   });
 }
 
-  // create and configure the app when electron is ready
   app.on("ready", () => {
+<<<<<<< HEAD
     // create window and application contexts
     createMainWindow();
+=======
+    // initialise build URL from command line
+    initBuildUrl();
+>>>>>>> trifall/main
 
     // enable auto start on Windows and MacOS
     if (config.firstLaunch) {
@@ -80,6 +94,7 @@ if (app.isPackaged && process.platform === "win32") {
 
     initTray();
     initDiscordRpc();
+    initPushToTalk();
 
     // Windows specific fix for notifications
     if (process.platform === "win32") {
@@ -98,9 +113,16 @@ if (app.isPackaged && process.platform === "win32") {
   // (irrespective of the minimise-to-tray option)
 
   app.on("window-all-closed", () => {
+    cleanupPushToTalk();
     if (process.platform !== "darwin") {
-      app.quit();
+      // Only way I found was to SIGKILL the process since process.exit() and app.exit() didn't work
+      process.kill(process.pid, "SIGKILL");
     }
+  });
+
+  // Clean up PTT on quit
+  app.on("before-quit", () => {
+    cleanupPushToTalk();
   });
 
   app.on("activate", () => {
@@ -114,11 +136,44 @@ if (app.isPackaged && process.platform === "win32") {
 
   // ensure URLs launch in external context
   app.on("web-contents-created", (_, contents) => {
-    // prevent navigation out of build URL origin
+    // Allow navigation to Stoat/Revolt API and CDN domains
+    const allowedOrigins = [
+      "https://stoat.chat",
+      "https://beta.revolt.chat",
+      "https://revolt.chat",
+      "https://api.revolt.chat",
+      "https://cdn.stoatusercontent.com",
+      "https://autumn.stoatusercontent.com",
+      "https://cdn.revolt.chat",
+    ];
+
+    // prevent navigation out of build URL origin (but allow API/CDN)
     contents.on("will-navigate", (event, navigationUrl) => {
+<<<<<<< HEAD
       if (new URL(navigationUrl).origin !== new URL(getStartUrl() ?? "https://beta.revolt.chat").origin) {
         event.preventDefault();
+=======
+      const url = new URL(navigationUrl);
+
+      // Allow stoat:// protocol (local electron-serve)
+      if (url.protocol === "stoat:") {
+        return;
+>>>>>>> trifall/main
       }
+
+      // Allow same origin (for local dev)
+      if (url.origin === BUILD_URL.origin) {
+        return;
+      }
+
+      // Allow known API/CDN origins
+      if (allowedOrigins.some(origin => url.origin === origin || url.href.startsWith(origin))) {
+        return;
+      }
+
+      // Block everything else
+      console.log("[Window] Blocking navigation to:", navigationUrl);
+      event.preventDefault();
     });
 
     // handle links externally
