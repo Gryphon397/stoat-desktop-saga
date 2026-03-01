@@ -9,9 +9,9 @@ import { autoLaunch } from "./native/autoLaunch";
 import { config } from "./native/config";
 import { initDiscordRpc } from "./native/discordRpc";
 import { cleanupPushToTalk, initPushToTalk } from "./native/pushToTalk";
+import { initScreenshareHandler } from "./native/screenshare";
 import { initTray } from "./native/tray";
-<<<<<<< HEAD
-import { BUILD_URL, createMainWindow, mainWindow } from "./native/window";
+import { BUILD_URL, createMainWindow, initBuildUrl, mainWindow } from "./native/window";
 import Store from "electron-store";
 
 // For custom server storage and handling
@@ -30,14 +30,6 @@ ipcMain.handle("server:getEffective", () => {
   const saved = store.get("serverUrl");
   return saved ?? null;
 });
-=======
-import {
-  BUILD_URL,
-  createMainWindow,
-  initBuildUrl,
-  mainWindow,
-} from "./native/window";
->>>>>>> trifall/main
 
 // Squirrel-specific logic
 // create/remove shortcuts on Windows when installing / uninstalling
@@ -76,13 +68,11 @@ if (app.isPackaged && process.platform === "win32") {
 }
 
   app.on("ready", () => {
-<<<<<<< HEAD
-    // create window and application contexts
-    createMainWindow();
-=======
     // initialise build URL from command line
     initBuildUrl();
->>>>>>> trifall/main
+    // create window and application contexts
+    createMainWindow();
+
 
     // enable auto start on Windows and MacOS
     if (config.firstLaunch) {
@@ -95,6 +85,7 @@ if (app.isPackaged && process.platform === "win32") {
     initTray();
     initDiscordRpc();
     initPushToTalk();
+    initScreenshareHandler();
 
     // Windows specific fix for notifications
     if (process.platform === "win32") {
@@ -149,16 +140,11 @@ if (app.isPackaged && process.platform === "win32") {
 
     // prevent navigation out of build URL origin (but allow API/CDN)
     contents.on("will-navigate", (event, navigationUrl) => {
-<<<<<<< HEAD
-      if (new URL(navigationUrl).origin !== new URL(getStartUrl() ?? "https://beta.revolt.chat").origin) {
-        event.preventDefault();
-=======
       const url = new URL(navigationUrl);
 
       // Allow stoat:// protocol (local electron-serve)
       if (url.protocol === "stoat:") {
         return;
->>>>>>> trifall/main
       }
 
       // Allow same origin (for local dev)
