@@ -216,7 +216,7 @@ function keyspyKeyToAccelerator(keyspyName: string): string {
     space: " ",
   };
 
-  return keyMapping[key] || key;
+  return keyMapping[key] || key.replace(/\s+/g, "");
 }
 
 function matchesKeyspyEvent(
