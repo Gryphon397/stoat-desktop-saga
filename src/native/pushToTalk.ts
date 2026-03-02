@@ -185,6 +185,14 @@ function keyspyKeyToAccelerator(keyspyName: string): string {
   const key = normalizeKeyName(keyspyName);
 
   const keyMapping: Record<string, string> = {
+    "left ctrl": "control",
+    "right ctrl": "control",
+    "left shift": "shift",
+    "right shift": "shift",
+    "left alt": "alt",
+    "right alt": "alt",
+    "left meta": "meta",
+    "right meta": "meta",
     oem_1: ";",
     oem_2: "/",
     oem_3: "`",
