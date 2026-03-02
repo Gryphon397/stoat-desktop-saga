@@ -21,8 +21,6 @@ import { updateTrayMenu } from "./tray";
 // global reference to main window
 export let mainWindow: BrowserWindow;
 
-<<<<<<< HEAD
-=======
 // currently in-use build
 export let BUILD_URL: URL;
 
@@ -124,7 +122,6 @@ function setupLocalProtocol() {
   });
 }
 
->>>>>>> trifall/main
 // internal window state
 let shouldQuit = false;
 

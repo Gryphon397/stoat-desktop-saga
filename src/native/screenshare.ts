@@ -44,5 +44,6 @@ export function initScreenshareHandler() {
           callback({});
         });
     },
+    { useSystemPicker: false },
   );
 }
