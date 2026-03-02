@@ -27,7 +27,7 @@ export function initScreenshareHandler() {
             resolved = true;
             ipcMain.removeListener("screenshare:cancel", onCancel);
             const source = sources.find((s) => s.id === sourceId);
-            callback(source ? { video: source } : {});
+            callback(source ? { video: source, audio: "loopback" } : {});
           };
 
           const onCancel = () => {
