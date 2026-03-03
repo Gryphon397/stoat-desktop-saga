@@ -31,6 +31,16 @@ ipcMain.handle("server:getEffective", () => {
   return saved ?? null;
 });
 
+// Suppress Electron's native error when a screenshare request is cancelled
+// without selecting a source (callback({}) throws on some Electron versions)
+process.on("uncaughtException", (error) => {
+  if (error.message?.includes("no stream was provided") ||
+      error.message?.includes("Permission denied")) {
+    return;
+  }
+  throw error;
+});
+
 // Squirrel-specific logic
 // create/remove shortcuts on Windows when installing / uninstalling
 // we just need to close out of the app immediately

@@ -34,14 +34,18 @@ export function initScreenshareHandler() {
             if (resolved) return;
             resolved = true;
             ipcMain.removeListener("screenshare:select", onSelect);
-            callback({});
+            try {
+              callback({});
+            } catch {
+              // Electron may throw natively when cancelling without a source
+            }
           };
 
           ipcMain.once("screenshare:select", onSelect);
           ipcMain.once("screenshare:cancel", onCancel);
         })
         .catch(() => {
-          callback({});
+          try { callback({}); } catch { /* ignore */ }
         });
     },
     { useSystemPicker: false },
