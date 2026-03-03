@@ -33,12 +33,21 @@ ipcMain.handle("server:getEffective", () => {
 
 // Suppress Electron's native error when a screenshare request is cancelled
 // without selecting a source (callback({}) throws on some Electron versions)
+const isScreenshareCancelError = (e: unknown) =>
+  e instanceof Error && (
+    e.message.includes("no stream was provided") ||
+    e.message.includes("Permission denied") ||
+    e.message.includes("video was requested")
+  );
+
 process.on("uncaughtException", (error) => {
-  if (error.message?.includes("no stream was provided") ||
-      error.message?.includes("Permission denied")) {
-    return;
-  }
+  if (isScreenshareCancelError(error)) return;
   throw error;
+});
+
+process.on("unhandledRejection", (reason) => {
+  if (isScreenshareCancelError(reason)) return;
+  throw reason;
 });
 
 // Squirrel-specific logic
