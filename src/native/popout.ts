@@ -28,14 +28,19 @@ export function initPopoutHandlers() {
       username: params.username,
     }).toString();
 
+    // Use the same origin the main window is actually loaded from, not
+    // BUILD_URL which may differ (e.g. beta.revolt.chat fallback).
+    const mainOrigin = new URL(mainWindow.webContents.getURL());
     let loadUrl: string;
-    if (BUILD_URL.protocol === "stoat:") {
+    if (mainOrigin.protocol === "stoat:") {
       loadUrl = `stoat://-/popout?${query}`;
     } else {
-      const base = new URL("/popout", BUILD_URL);
+      const base = new URL("/popout", mainOrigin.origin);
       base.search = query;
       loadUrl = base.toString();
     }
+
+    console.log("[Popout] Loading URL:", loadUrl);
 
     const win = new BrowserWindow({
       width: 960,
@@ -49,12 +54,20 @@ export function initPopoutHandlers() {
         preload: join(__dirname, "preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
-        webSecurity: BUILD_URL.protocol === "https:",
+        webSecurity: mainOrigin.protocol === "https:",
       },
     });
 
     win.setMenu(null);
     win.loadURL(loadUrl);
+
+    // Enable F12 DevTools in the popout window
+    win.webContents.on("before-input-event", (event, input) => {
+      if (input.key === "F12" && !input.control && !input.shift && !input.alt) {
+        event.preventDefault();
+        win.webContents.toggleDevTools();
+      }
+    });
 
     win.on("closed", () => {
       popoutWindows.delete(params.identity);
@@ -72,6 +85,7 @@ export function initPopoutHandlers() {
   ipcMain.handle("popout:get-offer", (_event, identity: string) => {
     const offer = pendingOffers.get(identity);
     pendingOffers.delete(identity);
+    console.log("[Popout] get-offer for", identity, offer ? "found" : "NOT FOUND");
     return offer ?? null;
   });
 
@@ -79,6 +93,7 @@ export function initPopoutHandlers() {
   ipcMain.handle(
     "popout:send-answer",
     (_event, identity: string, answerSdp: string) => {
+      console.log("[Popout] Relaying answer for", identity);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("popout:answer", identity, answerSdp);
       }
