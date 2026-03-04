@@ -4,13 +4,12 @@ import { join } from "node:path";
 import { BUILD_URL, mainWindow } from "./window";
 
 const popoutWindows = new Map<string, BrowserWindow>();
+const pendingOffers = new Map<string, string>();
 
 interface PopoutParams {
-  url: string;
-  token: string;
   identity: string;
-  trackSource: string;
   username: string;
+  offerSdp: string;
 }
 
 export function initPopoutHandlers() {
@@ -21,11 +20,11 @@ export function initPopoutHandlers() {
       return;
     }
 
+    // Store the WebRTC offer for the pop-out to retrieve
+    pendingOffers.set(params.identity, params.offerSdp);
+
     const query = new URLSearchParams({
-      url: params.url,
-      token: params.token,
       identity: params.identity,
-      trackSource: params.trackSource,
       username: params.username,
     }).toString();
 
@@ -39,10 +38,11 @@ export function initPopoutHandlers() {
     }
 
     const win = new BrowserWindow({
-      width: 854,
-      height: 480,
-      frame: false,
-      alwaysOnTop: true,
+      width: 960,
+      height: 540,
+      minWidth: 320,
+      minHeight: 180,
+      title: `${params.username}'s Screen`,
       skipTaskbar: false,
       backgroundColor: "#000000",
       webPreferences: {
@@ -58,10 +58,32 @@ export function initPopoutHandlers() {
 
     win.on("closed", () => {
       popoutWindows.delete(params.identity);
+      pendingOffers.delete(params.identity);
+      // Notify main window that this pop-out closed
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("popout:closed", params.identity);
+      }
     });
 
     popoutWindows.set(params.identity, win);
   });
+
+  // Pop-out requests the WebRTC offer
+  ipcMain.handle("popout:get-offer", (_event, identity: string) => {
+    const offer = pendingOffers.get(identity);
+    pendingOffers.delete(identity);
+    return offer ?? null;
+  });
+
+  // Pop-out sends its WebRTC answer back to the main window
+  ipcMain.handle(
+    "popout:send-answer",
+    (_event, identity: string, answerSdp: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("popout:answer", identity, answerSdp);
+      }
+    },
+  );
 
   ipcMain.handle("popout:close", (_event, identity: string) => {
     const win = popoutWindows.get(identity);
@@ -77,5 +99,6 @@ export function initPopoutHandlers() {
       }
       popoutWindows.delete(key);
     }
+    pendingOffers.clear();
   });
 }
