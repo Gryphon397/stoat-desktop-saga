@@ -1,4 +1,5 @@
 import "./world/config";
+import "./world/popout";
 import "./world/pushToTalk";
 import "./world/screenshare";
 import "./world/window";

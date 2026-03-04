@@ -9,6 +9,7 @@ import { autoLaunch } from "./native/autoLaunch";
 import { config } from "./native/config";
 import { initDiscordRpc } from "./native/discordRpc";
 import { cleanupPushToTalk, initPushToTalk } from "./native/pushToTalk";
+import { initPopoutHandlers } from "./native/popout";
 import { initScreenshareHandler } from "./native/screenshare";
 import { initTray } from "./native/tray";
 import { BUILD_URL, createMainWindow, initBuildUrl, mainWindow } from "./native/window";
@@ -105,6 +106,7 @@ if (app.isPackaged && process.platform === "win32") {
     initDiscordRpc();
     initPushToTalk();
     initScreenshareHandler();
+    initPopoutHandlers();
 
     // Windows specific fix for notifications
     if (process.platform === "win32") {

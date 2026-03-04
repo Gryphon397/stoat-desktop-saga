@@ -117,8 +117,14 @@ function setupLocalProtocol() {
       return new Response("Forbidden", { status: 403 });
     }
 
+    // SPA fallback: if the file doesn't exist, serve index.html
+    const fs = require("fs");
+    const servePath = fs.existsSync(filePath)
+      ? filePath
+      : join(localWebDir, "index.html");
+
     // Serve the file
-    return net.fetch("file://" + filePath);
+    return net.fetch("file://" + servePath);
   });
 }
 
