@@ -75,7 +75,7 @@ const store = new Store({
     startMinimisedToTray: false,
     spellchecker: true,
     hardwareAcceleration: true,
-    discordRpc: true,
+    discordRpc: false,
     pushToTalk: false,
     pushToTalkKeybind: "Shift+Space",
     pushToTalkMode: "hold",

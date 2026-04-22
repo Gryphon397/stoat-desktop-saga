@@ -250,8 +250,14 @@ export function createMainWindow() {
     };
   }
 
-  mainWindow.on("maximize", generateState);
-  mainWindow.on("unmaximize", generateState);
+  mainWindow.on("maximize", () => {
+    generateState();
+    mainWindow.webContents.send("maximise-changed", true);
+  });
+  mainWindow.on("unmaximize", () => {
+    generateState();
+    mainWindow.webContents.send("maximise-changed", false);
+  });
   mainWindow.on("moved", generateState);
   mainWindow.on("resized", generateState);
 

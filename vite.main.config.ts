@@ -4,6 +4,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: [
+        "application-loopback",
         "keyspy",
         "electron",
         "bufferutil",

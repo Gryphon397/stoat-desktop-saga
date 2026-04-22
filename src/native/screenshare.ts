@@ -3,6 +3,19 @@ import { desktopCapturer, ipcMain } from "electron";
 import { mainWindow } from "./window";
 
 export function initScreenshareHandler() {
+  // Direct source list for the getUserMedia capture path (bypasses setDisplayMediaRequestHandler)
+  ipcMain.handle("screenshare:getSources", async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen", "window"],
+      thumbnailSize: { width: 320, height: 180 },
+    });
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail.toDataURL(),
+    }));
+  });
+
   mainWindow.webContents.session.setDisplayMediaRequestHandler(
     (_request, callback) => {
       desktopCapturer
@@ -27,7 +40,18 @@ export function initScreenshareHandler() {
             resolved = true;
             ipcMain.removeListener("screenshare:cancel", onCancel);
             const source = sources.find((s) => s.id === sourceId);
-            callback(source ? { video: source, audio: "loopback" } : {});
+            if (!source) { callback({}); return; }
+
+            const isScreen = sourceId.startsWith("screen:");
+            const isWindow = sourceId.startsWith("window:");
+
+            // Always provide loopback audio so LiveKit gets an audio track.
+            // For window shares, the web client will replace the loopback
+            // audio with per-process audio from appAudioCapture.
+            if (isWindow) {
+              mainWindow.webContents.send("screenshare:windowSelected", sourceId);
+            }
+            callback({ video: source, audio: "loopback" });
           };
 
           const onCancel = () => {

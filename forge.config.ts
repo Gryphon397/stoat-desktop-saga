@@ -136,7 +136,7 @@ if (!process.env.PLATFORM) {
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      unpack: "**/node_modules/keyspy/**/*",
+      unpack: "**/node_modules/{keyspy,application-loopback}/**/*",
     },
     name: STRINGS.name,
     executableName: STRINGS.execName,
@@ -234,6 +234,16 @@ const config: ForgeConfig = {
         fs.mkdirSync(keyspyTarget, { recursive: true });
         copyRecursive(keyspySource, keyspyTarget);
         console.log("✓ keyspy copied successfully");
+      }
+
+      const loopbackSource = path.join(__dirname, "node_modules", "application-loopback");
+      const loopbackTarget = path.join(unpackedNodeModules, "application-loopback");
+
+      if (fs.existsSync(loopbackSource)) {
+        console.log("Copying application-loopback to:", loopbackTarget);
+        fs.mkdirSync(loopbackTarget, { recursive: true });
+        copyRecursive(loopbackSource, loopbackTarget);
+        console.log("✓ application-loopback copied successfully");
       }
 
       const sudoPromptSource = path.join(__dirname, "node_modules", "@expo", "sudo-prompt");

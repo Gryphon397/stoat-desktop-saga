@@ -1,4 +1,4 @@
-import { IUpdateInfo, updateElectronApp } from "update-electron-app";
+import { autoUpdater } from "electron-updater";
 
 import { registerIpcHandlers } from "./native/window";
 
@@ -8,8 +8,10 @@ import started from "electron-squirrel-startup";
 import { autoLaunch } from "./native/autoLaunch";
 import { config } from "./native/config";
 import { initDiscordRpc } from "./native/discordRpc";
+import { cleanupAppAudioCapture, initAppAudioCapture } from "./native/appAudioCapture";
 import { cleanupPushToTalk, initPushToTalk } from "./native/pushToTalk";
 import { initPopoutHandlers } from "./native/popout";
+import { initDevToggle } from "./native/devToggle";
 import { initScreenshareHandler } from "./native/screenshare";
 import { initTray } from "./native/tray";
 import { BUILD_URL, createMainWindow, initBuildUrl, mainWindow } from "./native/window";
@@ -66,26 +68,41 @@ if (!config.hardwareAcceleration) {
 // ensure only one copy of the application can run
 const acquiredLock = app.requestSingleInstanceLock();
 
-const onNotifyUser = (_info: IUpdateInfo) => {
-  const notification = new Notification({
-    title: "Update Available",
-    body: "Restart the app to install the update.",
-    silent: true,
-  });
-
-  notification.show();
-};
-
 if (acquiredLock) {
-	registerIpcHandlers();
-  // start auto update logic
-if (app.isPackaged && process.platform === "win32") {
-  updateElectronApp({
-    repo: "Gryphon397/stoat-desktop-saga",
-    updateInterval: "1 day",
-    notifyUser: true,
+  registerIpcHandlers();
+
+  // IPC handler: renderer asks to install the downloaded update
+  ipcMain.handle("update:install", () => {
+    autoUpdater.quitAndInstall(false, true);
   });
-}
+
+  // Auto-update event forwarding to renderer
+  if (app.isPackaged && process.platform === "win32") {
+    // Update found — start showing the progress circle at 0%
+    autoUpdater.on("update-available", () => {
+      if (!mainWindow) return;
+      mainWindow.webContents.send("update:progress", 0);
+    });
+
+    // Send download progress percentage to renderer
+    autoUpdater.on("download-progress", (progress) => {
+      if (!mainWindow) return;
+      mainWindow.webContents.send("update:progress", Math.round(progress.percent));
+    });
+
+    // Download complete — switch to the install arrow.
+    // If the window isn't ready yet, wait for did-finish-load first.
+    autoUpdater.on("update-downloaded", () => {
+      if (!mainWindow) return;
+      if (mainWindow.webContents.isLoading()) {
+        mainWindow.webContents.once("did-finish-load", () => {
+          mainWindow?.webContents.send("update:downloaded");
+        });
+      } else {
+        mainWindow.webContents.send("update:downloaded");
+      }
+    });
+  }
 
   app.on("ready", () => {
     // initialise build URL from command line
@@ -103,14 +120,22 @@ if (app.isPackaged && process.platform === "win32") {
     }
 
     initTray();
+    initDevToggle();
     initDiscordRpc();
     initPushToTalk();
     initScreenshareHandler();
+    initAppAudioCapture();
     initPopoutHandlers();
 
     // Windows specific fix for notifications
     if (process.platform === "win32") {
       app.setAppUserModelId("chat.stoat.notifications");
+    }
+
+    // Check for updates on startup and then once per day
+    if (app.isPackaged && process.platform === "win32") {
+      autoUpdater.checkForUpdates();
+      setInterval(() => autoUpdater.checkForUpdates(), 24 * 60 * 60 * 1000);
     }
   });
 
@@ -125,6 +150,7 @@ if (app.isPackaged && process.platform === "win32") {
   // (irrespective of the minimise-to-tray option)
 
   app.on("window-all-closed", () => {
+    cleanupAppAudioCapture();
     cleanupPushToTalk();
     if (process.platform !== "darwin") {
       // Only way I found was to SIGKILL the process since process.exit() and app.exit() didn't work
@@ -134,6 +160,7 @@ if (app.isPackaged && process.platform === "win32") {
 
   // Clean up PTT on quit
   app.on("before-quit", () => {
+    cleanupAppAudioCapture();
     cleanupPushToTalk();
   });
 
@@ -168,8 +195,13 @@ if (app.isPackaged && process.platform === "win32") {
         return;
       }
 
-      // Allow same origin (for local dev)
+      // Allow same origin and dev variant
       if (url.origin === BUILD_URL.origin) {
+        return;
+      }
+      // Allow the dev/prod counterpart origin (for dev toggle switching)
+      const currentHost = new URL(mainWindow.webContents.getURL()).hostname;
+      if (url.hostname === currentHost) {
         return;
       }
 
