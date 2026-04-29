@@ -13,6 +13,7 @@ import { cleanupPushToTalk, initPushToTalk } from "./native/pushToTalk";
 import { initPopoutHandlers } from "./native/popout";
 import { initDevToggle } from "./native/devToggle";
 import { initScreenshareHandler } from "./native/screenshare";
+import { initDebugCapture } from "./native/debugCapture";
 import { initTray } from "./native/tray";
 import { BUILD_URL, createMainWindow, initBuildUrl, mainWindow } from "./native/window";
 import Store from "electron-store";
@@ -126,6 +127,7 @@ if (acquiredLock) {
     initScreenshareHandler();
     initAppAudioCapture();
     initPopoutHandlers();
+    initDebugCapture();
 
     // Windows specific fix for notifications
     if (process.platform === "win32") {

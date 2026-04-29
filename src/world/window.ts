@@ -28,4 +28,26 @@ contextBridge.exposeInMainWorld("native", {
   },
 
   installUpdate: () => ipcRenderer.invoke("update:install"),
+
+  // [VOICE-DEBUG-CAPTURE] Dev-only outgoing voice pipeline capture bridge.
+  // pickDir prompts the user via dialog.showOpenDialog; writeBundle ships
+  // four WAV ArrayBuffers + metadata via structured-clone IPC for fs.writeFile
+  // in main. Only the renderer Settings UI invokes these — the IPC handlers
+  // sanitise filenames to prevent traversal.
+  debugCapture: {
+    pickDir: () =>
+      ipcRenderer.invoke("debug-capture:pickDir") as Promise<{
+        canceled: boolean;
+        path: string | null;
+      }>,
+    writeBundle: (payload: {
+      parentDir: string;
+      subfolderName: string;
+      files: { name: string; buffer: ArrayBuffer }[];
+      metadata: Record<string, unknown>;
+    }) =>
+      ipcRenderer.invoke("debug-capture:writeBundle", payload) as Promise<{
+        path: string;
+      }>,
+  },
 });

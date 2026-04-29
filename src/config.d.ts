@@ -37,6 +37,16 @@ declare interface Window {
     close: () => void;
     setBadgeCount: (count: number) => void;
     onMaximiseChanged: (callback: (isMaximised: boolean) => void) => void;
+    // [VOICE-DEBUG-CAPTURE] Dev-only voice pipeline capture bridge.
+    debugCapture?: {
+      pickDir: () => Promise<{ canceled: boolean; path: string | null }>;
+      writeBundle: (payload: {
+        parentDir: string;
+        subfolderName: string;
+        files: { name: string; buffer: ArrayBuffer }[];
+        metadata: Record<string, unknown>;
+      }) => Promise<{ path: string }>;
+    };
   };
   pushToTalk: {
     onStateChange: (callback: (state: { active: boolean }) => void) => void;
