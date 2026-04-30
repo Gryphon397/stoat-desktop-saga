@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld("native", {
     ipcRenderer.on("update:downloaded", () => callback());
   },
 
+  getUpdateStatus: () =>
+    ipcRenderer.invoke("update:status") as Promise<{
+      progress: number | null;
+      downloaded: boolean;
+    }>,
+
   installUpdate: () => ipcRenderer.invoke("update:install"),
 
   // [VOICE-DEBUG-CAPTURE] Dev-only outgoing voice pipeline capture bridge.

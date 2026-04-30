@@ -77,31 +77,37 @@ if (acquiredLock) {
     autoUpdater.quitAndInstall(false, true);
   });
 
+  // Cached update state. webContents.send is fire-and-forget, so events that
+  // fire before the renderer's onMount registers listeners (or that fire
+  // against an old renderer before a dev-toggle reload) are dropped. The
+  // renderer pulls this on mount to recover state regardless of timing.
+  const updateState: { progress: number | null; downloaded: boolean } = {
+    progress: null,
+    downloaded: false,
+  };
+
+  ipcMain.handle("update:status", () => updateState);
+
   // Auto-update event forwarding to renderer
   if (app.isPackaged && process.platform === "win32") {
     // Update found — start showing the progress circle at 0%
     autoUpdater.on("update-available", () => {
-      if (!mainWindow) return;
-      mainWindow.webContents.send("update:progress", 0);
+      updateState.progress = 0;
+      updateState.downloaded = false;
+      mainWindow?.webContents.send("update:progress", 0);
     });
 
     // Send download progress percentage to renderer
     autoUpdater.on("download-progress", (progress) => {
-      if (!mainWindow) return;
-      mainWindow.webContents.send("update:progress", Math.round(progress.percent));
+      const pct = Math.round(progress.percent);
+      updateState.progress = pct;
+      mainWindow?.webContents.send("update:progress", pct);
     });
 
     // Download complete — switch to the install arrow.
-    // If the window isn't ready yet, wait for did-finish-load first.
     autoUpdater.on("update-downloaded", () => {
-      if (!mainWindow) return;
-      if (mainWindow.webContents.isLoading()) {
-        mainWindow.webContents.once("did-finish-load", () => {
-          mainWindow?.webContents.send("update:downloaded");
-        });
-      } else {
-        mainWindow.webContents.send("update:downloaded");
-      }
+      updateState.downloaded = true;
+      mainWindow?.webContents.send("update:downloaded");
     });
   }
 
